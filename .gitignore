@@ -1,0 +1,43 @@
+# === SÉCURITÉ & CONFIGURATION ===
+# On verrouille tout le dossier config (clés, tokens, structures)
+config/*
+# On garde l'exception pour la protection serveur
+!config/.htaccess
+
+# Certificats et clés privées (VAPID, SSL, SSH)
+*.pem
+*.key
+*.crt
+*.p12
+
+# === DONNÉES DYNAMIQUES (DATA) ===
+# On ignore les fichiers JSON mis à jour par les scripts
+data/*.json
+data/*
+
+# === LOGS & TRACES ===
+# Historique CO2 et logs de backup
+logs/*.log
+*.log
+
+# === SAUVEGARDES (BACKUPS) ===
+# On ignore le dossier de backup local et les archives
+backup/
+*.tar.gz
+*.sql
+
+# === ENVIRONNEMENT & AUTO-GÉNÉRÉ ===
+# Le fichier de version est généré sur le serveur
+version.txt
+
+# Python : Cache et environnements virtuels
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+ENV/
+
+# OS & IDE
+.vscode/
+.DS_Store
+Thumbs.db

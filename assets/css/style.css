@@ -1,0 +1,320 @@
+/* =====================================================================
+   SHA 2026 - FEUILLE DE STYLE COMPLÈTE
+   Expert Audit Fix - Version 1.9 (Focus Menu)
+   ===================================================================== */
+
+:root {
+    /* Couleurs de base */
+    --bg: #000;
+    --card: #0c0c0c;
+    --border: #222; /* Bordures plus subtiles */
+    --header-bg: #111;
+    
+    /* Couleurs d'accentuation */
+    --accent: #3498db;
+    --solar: #f1c40f;
+    --green: #2ecc71;
+    --red: #e74c3c;
+    --orange: #ff9800; /* Ta couleur préférée pour le menu */
+    
+    /* Typographie & Coins */
+    --font-main: 'Segoe UI', system-ui, sans-serif;
+    --radius-lg: 20px;
+    --radius-md: 12px;
+    --radius-sm: 8px;
+}
+
+/* --- RÉINITIALISATION & BASE --- */
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; outline: none; }
+body { 
+    background: var(--bg); 
+    margin: 0; 
+    font-family: var(--font-main); 
+    color: #fff; 
+    overflow-x: hidden; 
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+}
+
+.container { padding: 20px; max-width: 1400px; margin: 0 auto; width: 100%; flex: 1; }
+
+/* --- HEADER (On garde la structure actuelle) --- */
+.sha-header {
+    display: flex; align-items: center; justify-content: space-between;
+    background: var(--header-bg); padding: 12px 20px;
+    border-bottom: 1px solid #1a1a1a; position: sticky; top: 0; z-index: 1000;
+}
+.sha-header-spacer {
+    width: 35px;
+}
+.header-title {
+    color: var(--orange); font-weight: 900; font-size: 1.1rem;
+    letter-spacing: 2px; flex-grow: 1; text-align: center; text-transform: uppercase;
+}
+.hamburger-btn { cursor: pointer; display: flex; flex-direction: column; gap: 5px; padding: 5px; z-index: 10001; }
+.hamburger-btn span { display: block; width: 25px; height: 2px; background: #fff; border-radius: 2px; }
+
+/* =====================================================================
+   ✅ NOUVELLE SIDEBAR (CORRECTION ESTHÉTIQUE SELON IMAGE)
+   ===================================================================== */
+.sidebar {
+    position: fixed; 
+    top: 0; 
+    right: -280px; /* Caché à droite */
+    width: 280px; 
+    height: 100%;
+    /* Fond sombre légèrement transparent pour l'élégance */
+    background: rgba(18, 18, 18, 0.98); 
+    z-index: 9999; 
+    
+    /* Transition fluide */
+    transition: right 0.4s cubic-bezier(0.165, 0.84, 0.44, 1);
+    
+    /* Coins arrondis UNIQUEMENT à gauche, comme sur l'image */
+    border-radius: var(--radius-lg) 0 0 var(--radius-lg);
+    
+    /* Bordure subtile et ombre portée pour la profondeur */
+    border-left: 1px solid var(--border);
+    box-shadow: -10px 0 25px rgba(0,0,0,0.6);
+    
+    padding-top: 10px;
+}
+.sidebar.active { right: 0; } /* État ouvert */
+
+/* Étiquette du menu (S.H.A. MENU + X) */
+.sidebar .menu-label { 
+    color: #fff; 
+    padding: 25px 30px; 
+    font-size: 0.95rem; 
+    font-weight: 900; 
+    display: flex; 
+    justify-content: space-between; 
+    align-items: center;
+    letter-spacing: 2px; 
+    text-transform: uppercase;
+}
+
+/* Liste des liens */
+.sidebar ul { list-style: none; padding: 10px 0 0; margin: 0; }
+
+.sidebar ul li a { 
+    display: flex; 
+    align-items: center; 
+    gap: 18px; 
+    padding: 18px 30px; 
+    color: #aaa; /* Couleur de base discrète */
+    text-decoration: none; 
+    font-size: 0.85rem; 
+    font-weight: 700;
+    text-transform: uppercase; 
+    transition: all 0.2s ease;
+    border-bottom: 1px solid #0f0f0f; /* Séparateur très sombre */
+}
+
+/* Style des icônes (Discrètes par défaut) */
+.sidebar ul li a span { 
+    font-size: 1.3rem; 
+    filter: grayscale(1) opacity(0.7); /* Effet "vieux gris" comme sur l'image */
+    transition: 0.2s;
+}
+
+/* --- EFFET HOVER (SURVOL) --- */
+.sidebar ul li a:hover { 
+    color: #fff; /* Texte blanc au survol */
+    background: rgba(255,255,255,0.03); /* Léger fond clair */
+    padding-left: 35px; /* Petit décalage élégant */
+}
+
+/* Réactivation des icônes au survol */
+.sidebar ul li a:hover span { 
+    filter: grayscale(0) opacity(1); /* L'icône reprend ses couleurs */
+    transform: scale(1.1); /* Léger grossissement */
+}
+
+/* Séparateur spécial pour la fin (Notifications) */
+.sidebar .separator { height: 1px; background: var(--border); margin: 15px 30px; opacity: 0.5; }
+
+/* Overlay de fond (Background Blur) */
+.overlay { 
+    display: none; 
+    position: fixed; 
+    inset: 0; 
+    background: rgba(0,0,0,0.8); 
+    z-index: 9998; 
+    backdrop-filter: blur(5px); /* Effet flou moderne */
+}
+.overlay.active { display: block; }
+
+/* =====================================================================
+   Reste du style (Grid, Cards, etc.)
+   ===================================================================== */
+
+/* --- BANDEAU TUILES --- */
+.nav-tiles { display: grid; grid-template-columns: repeat(7, 1fr); gap: 12px; padding: 10px 0 20px; }
+.tile {
+    background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-md);
+    padding: 12px 8px; text-decoration: none; text-align: center; transition: 0.2s;
+    aspect-ratio: 1/1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+}
+.tile:hover { border-color: var(--accent); transform: translateY(-3px); }
+.tile-icon { font-size: 1.6rem; margin-bottom: 4px; }
+.tile-label { font-size: 0.55rem; font-weight: 900; text-transform: uppercase; color: #eee; letter-spacing: 1px; }
+
+@media (min-width: 1001px) {
+    .tile-icon { font-size: 2.5rem; }
+}
+
+/* --- GRILLE & CARTES PIÈCES --- */
+.room-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 20px; }
+.room-card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; display: flex; flex-direction: column; }
+.room-card.wide { grid-column: span 2; }
+
+.room-head { display: flex; align-items: center; justify-content: space-between; padding: 15px 20px; border-bottom: 1px solid var(--border); background: #080808; }
+.room-title { font-weight: 900; font-size: 1.0rem; text-transform: uppercase; letter-spacing: 1px; display: flex; align-items: center; gap: 15px; }
+.room-title span { font-size: 1.4rem; }
+
+/* --- STECKDOSEN & HEIZUNG (On garde les styles existants) --- */
+.dev-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #0f0f0f; }
+.dev-led { width: 8px; height: 8px; border-radius: 50%; background: #222; }
+.dev-led.on { background: var(--green); box-shadow: 0 0 8px var(--green); }
+.btn-sw { border: none; padding: 8px 14px; border-radius: 6px; font-weight: 900; font-size: 0.7rem; cursor: pointer; color: #fff; min-width: 60px; text-decoration: none; display: inline-block; }
+.btn-on { background: #1b5e20; border-bottom: 2px solid #0d3d10; }
+.btn-off { background: #b71c1c; border-bottom: 2px solid #7f0000; }
+
+/* --- FOOTER --- */
+.sha-footer { background: #080808; border-top: 1px solid #222; padding: 25px 0; color: #444; font-size: 0.7rem; }
+.footer-container { max-width: 1200px; margin: 0 auto; padding: 0 20px; display: flex; justify-content: space-between; align-items: center; }
+
+/* --- RESPONSIVE --- */
+@media (max-width: 1000px) { .nav-tiles { grid-template-columns: repeat(4, 1fr); } .room-card.wide { grid-column: span 1; } }
+@media (max-width: 600px) { .nav-tiles { grid-template-columns: repeat(3, 1fr); } .header-title { font-size: 0.9rem; } .sidebar { width: 100%; right: -100%; border-radius: 0; } .sidebar.active { right: 0; } }
+
+/* SHA 2026 - Styles Volets */
+.shutter-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 25px;
+    padding: 10px;
+}
+
+.shutter-card {
+    background: #111;
+    border-radius: 20px;
+    padding: 25px;
+    border: 1px solid #222;
+    transition: all 0.3s ease;
+}
+
+.central-card {
+    border: 1px solid #ff980066;
+    box-shadow: 0 0 15px rgba(255, 152, 0, 0.1);
+    max-width: 450px;
+    margin: 0 auto 40px auto;
+}
+
+.shutter-header {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    margin-bottom: 20px;
+}
+
+.roll-icon {
+    width: 45px;
+    height: 45px;
+    background: url('assets/img/rollBW2.png') no-repeat center;
+    background-size: contain;
+    filter: brightness(1.2);
+}
+
+.shutter-name { font-weight: 900; font-size: 1rem; color: #fff; text-transform: uppercase; }
+.shutter-sub { color: #666; font-size: 0.6rem; font-weight: bold; text-transform: uppercase; }
+
+.control-row { display: flex; gap: 12px; width: 100%; }
+
+.btn-roll {
+    flex: 1; border: none; padding: 16px; border-radius: 12px;
+    cursor: pointer; display: flex; align-items: center; justify-content: center;
+    gap: 10px; font-weight: 900; font-size: 0.85rem; text-transform: uppercase;
+    transition: 0.2s; color: #fff;
+}
+
+.btn-up { background: #1b5e20; border-bottom: 4px solid #0d3d10; }
+.btn-down { background: #0d47a1; border-bottom: 4px solid #082d66; }
+
+.btn-roll:active { transform: translateY(2px); border-bottom-width: 0; margin-bottom: 4px; }
+.btn-roll.loading { opacity: 0.3; pointer-events: none; filter: grayscale(1); }
+
+.icon-ascii { font-size: 1.1rem; }
+
+.btn-roll {
+        flex: 1; border: none; padding: 12px 20px; border-radius: 10px;
+        cursor: pointer; display: flex; align-items: center; justify-content: center;
+        gap: 8px; font-weight: 900; font-size: 0.8rem; text-transform: uppercase;
+        transition: 0.2s; color: #fff; min-width: 100px;
+    }
+    .btn-up { background: #1b5e20; border-bottom: 4px solid #0d3d10; }
+    .btn-down { background: #0d47a1; border-bottom: 4px solid #082d66; }
+    .btn-roll:active { transform: translateY(2px); border-bottom-width: 0; margin-bottom: 4px; }
+    .btn-roll.loading { opacity: 0.4; pointer-events: none; filter: grayscale(1); }
+
+    .loading { opacity: 0.5; pointer-events: none; }
+
+    /* --- ROLLADEN MOBILE RESPONSIVE --- */
+
+.shutter-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 15px 20px;
+    border-bottom: 1px solid #1a1a1a;
+    gap: 15px;
+}
+
+.shutter-row:last-child {
+    border-bottom: none;
+}
+
+.shutter-label {
+    font-weight: 900;
+    font-size: 0.85rem;
+    color: #ccc;
+    flex-shrink: 0;
+}
+
+.shutter-controls {
+    display: flex;
+    gap: 10px;
+    flex-grow: 1;
+    max-width: 250px; /* Taille fixe sur PC */
+}
+
+/* --- ADAPTATION MOBILE --- */
+@media (max-width: 600px) {
+    .shutter-row {
+        flex-direction: column; /* On empile sur mobile */
+        align-items: stretch;   /* Les boutons prennent toute la largeur */
+        gap: 10px;
+        padding: 15px;
+    }
+
+    .shutter-label {
+        text-align: center;
+        font-size: 0.8rem;
+    }
+
+    .shutter-controls {
+        max-width: none; /* On libère la contrainte de taille */
+        width: 100%;
+    }
+
+    .btn-roll {
+        padding: 15px 0; /* Boutons plus gros pour le doigt */
+        font-size: 0.85rem;
+    }
+
+    div[style*="grid-template-columns: repeat(3, 1fr)"] { grid-template-columns: 1fr !important; }
+    div[style*="grid-template-columns: repeat(auto-fill, minmax(400px, 1fr))"] { grid-template-columns: 1fr !important; }
+}
+.btn-sw.loading { opacity: 0.5; cursor: wait; filter: grayscale(1); transition: 0.2s; }

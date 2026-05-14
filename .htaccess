@@ -1,0 +1,41 @@
+# === S.H.A. 2026 - Root Security ===
+
+# 1. Empêcher le listage des dossiers (pour que personne ne voie tes fichiers dans /assets ou /scripts)
+Options -Indexes
+
+# 2. Protection contre l'accès aux fichiers sensibles et scripts sources
+<FilesMatch "\.(conf|ini|log|sh|py|pem|key|sql|bak)$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order deny,allow
+        Deny from all
+    </IfModule>
+</FilesMatch>
+
+# 3. Empêcher l'accès aux fichiers cachés (comme .gitignore ou .htaccess)
+<FilesMatch "^\.">
+    Require all denied
+</FilesMatch>
+
+# 4. Forcer le type MIME pour le manifeste PWA (indispensable pour iOS/Android)
+AddType application/manifest+json .json
+
+# 5. En-têtes de sécurité de base
+<IfModule mod_headers.c>
+    # Empêche ton dashboard d'être mis dans une Iframe (contre le clickjacking)
+    Header set X-Frame-Options "SAMEORIGIN"
+    # Protection contre le XSS
+    Header set X-XSS-Protection "1; mode=block"
+    # Empêche le navigateur de deviner le type de fichier (MIME sniffing)
+    Header set X-Content-Type-Options "nosniff"
+</IfModule>
+
+# 6. Restriction par IP (Optionnel mais recommandé si tu n'accèdes qu'en local)
+# Note : C'est plus efficace que ton test PHP dans header.php car ça bloque AVANT l'exécution.
+ ErrorDocument 403 "<h1>ACCES RESTRAINT S.H.A.</h1>"
+ Order Deny,Allow
+ Deny from all
+ Allow from 192.168.0.0/16
+ Allow from 127.0.0.1
