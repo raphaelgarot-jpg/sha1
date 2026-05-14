@@ -7,7 +7,7 @@ $display_version = "V0.6.x"; // Fallback de secours
 if (file_exists($version_path)) {
     $content = trim(file_get_contents($version_path));
     if (!empty($content)) {
-        $display_version = htmlspecialchars($content);
+        $display_version = "V0.6.".htmlspecialchars($content);
     }
 }
 ?>
