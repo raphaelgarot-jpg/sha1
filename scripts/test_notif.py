@@ -4,7 +4,7 @@ from pywebpush import webpush, WebPushException
 
 # --- CONFIGURATION ---
 SUB_FILE = "/var/www/html/sha/config/devices.json" #
-PEM_FILE = "/var/www/html/sha/conf/private_key.pem" #
+PEM_FILE = "/var/www/html/sha/config/private_key.pem" #
 
 VAPID_CLAIMS = {
     "sub": "mailto:admin@rgsv.fr" #

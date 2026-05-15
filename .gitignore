@@ -14,6 +14,7 @@ config/*
 # On ignore les fichiers JSON mis à jour par les scripts
 data/*.json
 data/*
+!data/version.txt
 
 # === LOGS & TRACES ===
 # Historique CO2 et logs de backup

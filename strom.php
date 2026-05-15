@@ -4,6 +4,7 @@ include("header.php");
 // 1. Chargement config
 $rooms = parse_ini_file('config/home_structure.conf', true);
 $sys = $rooms['System'];
+$defaults = $rooms['Defaults'] ?? [];
 
 // Cache pour éviter de solliciter plusieurs fois le même Tasmota
 $tas_cache = [];
@@ -145,7 +146,8 @@ $netzeinspeisung = max(0, $solar_watt - $gesamt_conso);
                         if (!isset($tas_cache[$ip])) { $tas_cache[$ip] = getSmartMeter($ip); }
                         $p = $tas_cache[$ip];
                         $room_total += $p;
-                        $dev_list[] = ['label' => $label, 'power' => $p, 'source' => 'tas'];
+                        $icon = $parts[4] ?? $defaults[$type];
+                        $dev_list[] = ['label' => $label, 'power' => $p, 'source' => 'tas', 'icon' => $icon];
                     }
                 }
             }
@@ -158,7 +160,8 @@ $netzeinspeisung = max(0, $solar_watt - $gesamt_conso);
                     list($key, $label) = $parts_drs;
                     $p = $drs_data[$key] ?? 0;
                     $room_total += $p;
-                    $dev_list[] = ['label' => $label, 'power' => $p, 'source' => 'drs'];
+                    $icon = $parts_drs[2] ?? $defaults['drs']; 
+                    $dev_list[] = ['label' => $label, 'power' => $p, 'source' => 'drs', 'icon' => $icon];
                 }
             }
 
@@ -179,7 +182,7 @@ $netzeinspeisung = max(0, $solar_watt - $gesamt_conso);
                 <div class="room-body" style="padding: 10px 20px;">
                     <?php foreach ($dev_list as $d): ?>
                         <div class="dev-row" style="display: flex; justify-content: space-between; padding: 5px 0;">
-                            <span class="dev-name" style="font-size: 0.85rem; color: #ccc;"><?= $d['label'] ?></span>
+                            <span class="dev-name" style="font-size: 0.85rem; color: #ccc;"><span style="margin-right: 8px;"><?= $d['icon'] ?></span><?= $d['label'] ?></span>
                             <span style="font-weight: 900; color: #eee; <?= ($d['source'] == 'drs' && $drs_warning) ? 'color: var(--red);' : '' ?>">
                                 <?= round($d['power']) ?> <small style="color:#444; font-size: 0.6rem;">W</small>
                             </span>
