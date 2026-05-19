@@ -4,7 +4,7 @@ include("header.php");
 // --- FILTRAGE PIÈCES ---
 $shutter_rooms = [];
 foreach ($rooms as $name => $data) {
-    if ($name == 'System') continue;
+    if ($name == 'System' || $name == 'Defaults') continue;
     if (isset($data['shutter']) || !empty($data['devices'])) {
         $has_shutter = isset($data['shutter']);
         if (!$has_shutter && !empty($data['devices'])) {
