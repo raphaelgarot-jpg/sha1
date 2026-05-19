@@ -1,7 +1,7 @@
 </main> 
 <?php
 // Lecture du fichier de version généré par les hooks Git
-$version_path = __DIR__ . '/data/version.txt'; 
+$version_path = __DIR__ . '/data/version.txt';
 $display_version = "V0.6.x"; // Fallback de secours
 
 if (file_exists($version_path)) {
