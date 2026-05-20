@@ -86,3 +86,48 @@ function toggleSHA() {
     overlay.classList.toggle('active');
     document.body.style.overflow = sidebar.classList.contains('active') ? 'hidden' : '';
 }
+
+// ==========================================
+// AUTO-REFRESH INVISIBLE (AJAX)
+// ==========================================
+
+function startAutoRefresh() {
+    // Délai de rafraîchissement (10 secondes = 10000 ms)
+    const refreshInterval = 10000; 
+
+    // On s'assure de ne lancer l'auto-refresh que si l'élément .container existe
+    if (!document.querySelector('.container')) return;
+
+    setInterval(() => {
+        // On récupère l'URL de la page actuelle (ex: strom.php ou rolladen.php)
+        const currentUrl = window.location.href;
+
+        // On lance la requête en arrière-plan en forçant le contournement du cache navigateur
+        fetch(currentUrl, { cache: "no-store" })
+            .then(response => {
+                if (!response.ok) throw new Error("Erreur réseau");
+                return response.text();
+            })
+            .then(html => {
+                // On transforme le texte reçu en véritable document HTML
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(html, "text/html");
+
+                // On cible la zone principale (le container)
+                const newContainer = doc.querySelector('.container');
+                const currentContainer = document.querySelector('.container');
+
+                // Si la requête a réussi et que la structure est bonne, on remplace le contenu
+                if (newContainer && currentContainer) {
+                    currentContainer.innerHTML = newContainer.innerHTML;
+                }
+            })
+            .catch(error => {
+                console.warn("Erreur silencieuse lors du refresh AJAX:", error);
+                // On ne bloque pas l'UI, le prochain essai se fera dans 10s
+            });
+    }, refreshInterval);
+}
+
+// On lance le script une fois que le navigateur a fini de charger la structure de la page
+document.addEventListener("DOMContentLoaded", startAutoRefresh);
