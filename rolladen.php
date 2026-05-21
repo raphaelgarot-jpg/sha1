@@ -21,7 +21,7 @@ foreach ($rooms as $name => $data) {
 
     <?php if (!empty($shutter_rooms)): ?>
     <div class="room-card" style="margin-bottom: 25px; border: 1px solid #ff980066; padding: 20px; display: flex; flex-direction: column; gap: 15px;">
-        <div class="room-title" style="justify-content: center; color: #ff9800;"><span>🏠</span> ZENTRALSTEUERUNG</div>
+        <div class="room-title" style="justify-content: center; color: #ff9800;"><span>🪟</span> ZENTRALSTEUERUNG</div>
         <div style="display: flex; gap: 10px; justify-content: center;">
             <button onclick="sendRoll('all', '1', 'off', this)" class="btn-sw btn-on" style="min-width: 80px; text-align: center;">▲ AUF</button>
             <button onclick="sendRoll('all', '1', 'on', this)" class="btn-sw btn-off" style="min-width: 80px; text-align: center;">▼ ZU</button>
