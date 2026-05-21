@@ -533,20 +533,6 @@ Rule1 1
 _____________
 
 
-Complément de Documentation : Compromis Temporaire de Mesure
-
-    ⚠️ Note d'Architecture (Mai 2026) : > Suite à des dérives matérielles répétées et des plantages de puces mémoire sur certaines prises Tasmota anciennes (ex: .63), une correction logicielle temporaire a été appliquée dans le script sha_cache_builder.py.
-
-    La puissance enregistrée est calculée via la formule : Puissance Finale = Puissance Lue / Facteur de Puissance.
-
-    Limites connues : Cette formule annule l'erreur de calibration sur les charges purement résistives (radiateurs, ampoules classiques), mais transforme la mesure en Puissance Apparente (Volt-Ampères) sur les charges réactives (LED, moteurs, frigos), ce qui va surestimer artificiellement leur consommation réelle.
-
-    Stratégie à long terme : Ce calcul évite la maintenance quotidienne des étalonnages. Ces modules Tasmota instables seront remplacés progressivement par des modules Shelly (Gen2/Gen3), rendant à terme cette correction logicielle obsolète.
-
-
-    ____
-
-
     ⚙️ 5. Configuration Spécifique : Modules Shelly (Gen2 / Gen3)
 
 Contrairement aux modules Tasmota qui fonctionnent sur un modèle de scrutation périodique (TelePeriod), les modules Shelly de génération récente (ex: Shelly PM Mini Gen3, Plus 2PM) fonctionnent sur un modèle événementiel (Push on Change).
@@ -614,3 +600,29 @@ Timer.set(TELEPERIOD_MS, true, function() {
     Cliquer sur Start.
 
 Le module Shelly est désormais 100 % compatible avec l'architecture S.H.A. et se comportera visuellement comme un module Tasmota sur le tableau de bord PHP.
+
+____
+
+
+2. Section de Documentation : Multi-Worker & Environnement
+
+Voici la section à ajouter à ta documentation technique globale pour consigner toutes les modifications effectuées aujourd'hui en dehors du dossier /var/www/html/sha/.
+📂 Annexe C : Dépendances Système et Architecture Multi-Worker
+
+L'architecture S.H.A. s'appuie sur un gestionnaire d'environnement virtuel Python (PyEnv) et un service système centralisé (Systemd) pour faire cohabiter le collecteur de données et le moteur de règles événementiel.
+1. Environnement Virtuel Obligatoire (PyEnv)
+
+Les scripts S.H.A. ne doivent jamais utiliser le Python système (souvent obsolète ou bridé). Ils sont configurés pour s'exécuter exclusivement sous l'environnement suivant :
+
+    Interpréteur cible : /root/.pyenv/versions/3.12.3/bin/python3
+
+    Gestionnaire de paquets dédié : /root/.pyenv/versions/3.12.3/bin/pip
+
+Dépendances critiques à maintenir (Gestion des versions) :
+
+    pywebpush : Requis pour le chiffrement des notifications Push natives vers les navigateurs.
+
+    paho-mqtt (⚠️ Verrouillage de version) : Le script utilise l'API de la branche 1.x. L'installation automatique de la version 2.x brise le protocole.
+
+        Commande de restauration stricte : ```bash
+        /root/.pyenv/versions/3.12.3/bin/pip install "paho-mqtt<2.0.0" --force-reinstall
