@@ -124,26 +124,11 @@ def on_message(client, userdata, msg):
                     data = json.loads(payload_str)
                     sns = data.get("StatusSNS", data)
 
+                    # Extraction directe de la puissance active (Power)
                     if 'GS303' in sns and 'Power_cur' in sns['GS303']:
-                        raw_power = sns['GS303'].get('Power_cur', 0)
-                        factor = sns['GS303'].get('Factor', 1.0)
-                        final_power = (raw_power / factor) if factor > 0 else raw_power
-                        update_device_cache(ip, final_power)
-                        
-                    elif 'ENERGY' in sns:
-                        # On privilégie la Puissance Apparente native de Tasmota (VA)
-                        if 'ApparentPower' in sns['ENERGY']:
-                            final_power = sns['ENERGY']['ApparentPower']
-                        elif 'Power' in sns['ENERGY']:
-                            # Fallback : calcul manuel avec le Power Factor
-                            raw_power = sns['ENERGY'].get('Power', 0)
-                            factor = sns['ENERGY'].get('Factor', 1.0)
-                            final_power = (raw_power / factor) if factor > 0 else raw_power
-                        else:
-                            final_power = 0
-                            
-                        update_device_cache(ip, final_power)
-                        
+                        update_device_cache(ip, sns['GS303'].get('Power_cur', 0))
+                    elif 'ENERGY' in sns and 'Power' in sns['ENERGY']:
+                        update_device_cache(ip, sns['ENERGY'].get('Power', 0))
                 except json.JSONDecodeError:
                     pass
 
