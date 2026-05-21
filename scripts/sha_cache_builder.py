@@ -9,7 +9,7 @@ import paho.mqtt.client as mqtt
 # --- CHEMINS LOGIQUES SHA ---
 APP_CONF = "/var/www/html/sha/config/app.conf"
 RAM_FILE = "/dev/shm/sha_live.json"
-MAX_AGE_SECONDS = 600  # 10 minutes d'inactivité max avant suppression du cache
+MAX_AGE_SECONDS = 600  # 10 minutes d'inactivité max
 
 # Stockage global
 cached_devices = {}
@@ -39,7 +39,6 @@ def update_device_cache(ip, power, channel=None):
     global cached_devices
     now = int(time.time())
     
-    # Si l'IP n'existe pas, on initialise la structure multi-canal
     if ip not in cached_devices:
         cached_devices[ip] = {
             "power": 0.0,
@@ -47,14 +46,11 @@ def update_device_cache(ip, power, channel=None):
             "last_seen": now
         }
     
-    # Si un canal est spécifié (cas des modules Shelly multi-voies)
     if channel is not None:
         cached_devices[ip]["channels"][str(channel)] = float(power)
-        # La puissance totale est la somme de tous les canaux actifs de cet appareil
         total_power = sum(cached_devices[ip]["channels"].values())
         cached_devices[ip]["power"] = round(total_power, 2)
     else:
-        # Cas standard mono-canal (Tasmota standard)
         cached_devices[ip]["power"] = round(float(power), 2)
         
     cached_devices[ip]["last_seen"] = now
@@ -73,18 +69,15 @@ def write_ram_cache():
         with open(temp_file, 'w') as f:
             json.dump(payload, f, indent=2)
         os.replace(temp_file, RAM_FILE)
-    except Exception as e:
+    except Exception:
         pass
 
-# 2. CALLBACKS MQTT
-def on_connect(client, userdata, flags, rc):
+# 2. CALLBACKS MQTT (Version compatible API v1 et v2)
+def on_connect(client, userdata, flags, rc, *extra_args):
     if rc == 0:
-        print("✅ Connecté au Broker MQTT. Analyse du flux multi-génération Shelly & Tasmota...")
-        client.subscribe("stat/+/+")
-        client.subscribe("tele/+/+")
-        client.subscribe("+/relay/#") 
-        client.subscribe("+/status/#")
-        client.subscribe("+/events/rpc") # Canal maître pour Shelly Gen3
+        print("✅ Connecté au Broker MQTT. Analyse du flux multi-génération...")
+        # On s'abonne à tout pour ne rien rater des Shelly sans racine fixe
+        client.subscribe("#")
         client.publish("cmnd/tasmota_solo/STATUS", "5")
     else:
         print(f"❌ Échec de connexion MQTT (Code {rc})")
@@ -100,6 +93,10 @@ def on_message(client, userdata, msg):
 
     try:
         parts = topic.split('/')
+
+        # Mouchard temporaire pour voir passer les Shelly dans la console
+        if "shelly" in parts[0]:
+            print(f"📥 [DEBUG SHELLY] Topic: {topic} | Payload: {payload_str[:80]}")
 
         # --- CAS 1 : TASMOTA ---
         if topic.startswith("tele/") or topic.startswith("stat/"):
@@ -125,7 +122,6 @@ def on_message(client, userdata, msg):
                     data = json.loads(payload_str)
                     sns = data.get("StatusSNS", data)
 
-                    # Extraction directe de la puissance active (Power)
                     if 'GS303' in sns and 'Power_cur' in sns['GS303']:
                         update_device_cache(ip, sns['GS303'].get('Power_cur', 0))
                     elif 'ENERGY' in sns and 'Power' in sns['ENERGY']:
@@ -133,50 +129,84 @@ def on_message(client, userdata, msg):
                 except json.JSONDecodeError:
                     pass
 
-# --- CAS 2 : SHELLY (COMPATIBILITÉ TOTALE GEN 1 ET GEN 2/3) ---
-        elif "shelly_192_168_" in parts[0]:
-            raw_ip = parts[0].replace("shelly_", "").replace("_", ".")
-            if re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$', raw_ip):
-                ip = raw_ip
+# --- CAS 2 : SHELLY (COMPATIBILITÉ FINALE GEN 2 & 3) ---
+        elif "shelly" in parts[0]:
+            device_id = parts[0]
 
-                # SOUS-CAS A : NOUVEAU FLUX RPC (Shelly Gen3)
-                if "/events/rpc" in topic and payload_str.startswith("{"):
-                    try:
-                        data = json.loads(payload_str)
+            # 1. Résolution de l'IP pour le format "shelly_192_168_X_X"
+            if "shelly_192_168_" in device_id:
+                raw_ip = device_id.replace("shelly_", "").replace("_", ".")
+                if re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$', raw_ip):
+                    topic_to_ip_map[device_id] = raw_ip
+
+            # 2. Résolution de l'IP pour les IDs en texte (Mappage de secours ou dynamique)
+            if payload_str.startswith("{"):
+                try:
+                    data = json.loads(payload_str)
+                    sta_ip = None
+                    if "wifi" in data and "sta_ip" in data["wifi"]:
+                        sta_ip = data["wifi"]["sta_ip"]
+                    elif "params" in data and "wifi" in data["params"] and "sta_ip" in data["params"]["wifi"]:
+                        sta_ip = data["params"]["wifi"]["sta_ip"]
+                        
+                    if sta_ip and re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$', sta_ip):
+                        topic_to_ip_map[device_id] = sta_ip
+                except Exception:
+                    pass
+
+            # 3. EXTRACTION DIRECTE DE LA PUISSANCE (On cible les sous-topics de statut)
+            if "/status/" in topic and payload_str.startswith("{"):
+                try:
+                    data = json.loads(payload_str)
+                    if 'apower' in data:
+                        # Si l'IP n'est pas encore découverte dynamiquement pour cet ID, 
+                        # on utilise une correspondance temporaire basée sur tes configurations
+                        ip = topic_to_ip_map.get(device_id)
+                        if not ip:
+                            if "e4b32317de0c" in device_id:
+                                ip = "192.168.0.141"  # Ton Shelly 1PM Mini Gen3
+                            elif "dcda0ce8d81c" in device_id:
+                                ip = "192.168.0.153"  # Ton Shelly PM Mini Gen3
+                            else:
+                                return # IP inconnue, on passe
+
+                        # Récupération du canal depuis le topic (ex: "pm1:0" ou "switch:0")
+                        sub_key = parts[-1]
+                        channel = sub_key.split(':')[-1] if ':' in sub_key else "0"
+                        
+                        # Injection immédiate de la puissance active
+                        update_device_cache(ip, data.get('apower', 0.0), channel=channel)
+                except Exception:
+                    pass
+
+            # 4. Lecture de secours via les évènements globaux RPC
+            elif "/events/rpc" in topic and payload_str.startswith("{"):
+                try:
+                    data = json.loads(payload_str)
+                    ip = topic_to_ip_map.get(device_id)
+                    if not ip and "e4b32317de0c" in device_id: ip = "192.168.0.141"
+                    if not ip and "dcda0ce8d81c" in device_id: ip = "192.168.0.153"
+                    
+                    if ip:
                         params = data.get("params", {})
-
                         for key, value in params.items():
                             if (key.startswith("pm1:") or key.startswith("switch:")) and isinstance(value, dict):
                                 if 'apower' in value:
                                     channel = key.split(':')[-1]
-                                    update_device_cache(ip, value.get('apower', 0), channel=channel)
-                    except json.JSONDecodeError:
-                        pass
+                                    update_device_cache(ip, value.get('apower', 0.0), channel=channel)
+                except Exception:
+                    pass
 
-                # SOUS-CAS B : Shelly Récent / Gen 2+ (Format JSON standard)
-                elif ("/status/pm1:" in topic or "/status/switch:" in topic) and payload_str.startswith("{"):
-                    try:
-                        data = json.loads(payload_str)
-                        if 'apower' in data:
-                            channel = parts[2].split(':')[-1] if ':' in parts[2] else "0"
-                            update_device_cache(ip, data.get('apower', 0), channel=channel)
-                    except json.JSONDecodeError:
-                        pass
-
-                # SOUS-CAS C : Shelly Ancien / Gen 1 (Format Texte Brut / Raw)
-                elif "/relay/" in topic and topic.endswith("/power"):
-                    try:
-                        raw_power = float(payload_str)
-                        channel = parts[2]
-                        update_device_cache(ip, raw_power, channel=channel)
-                    except ValueError:
-                        pass
-
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"⚠️ Erreur lors du traitement d'un message: {e}")
 
 def run_mqtt_worker():
-    client = mqtt.Client()
+    # Déclaration compatible avec les anciennes et nouvelles versions de Paho-MQTT
+    try:
+        client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION1)
+    except AttributeError:
+        client = mqtt.Client()
+
     if MQTT_USER and MQTT_PASS:
         client.username_pw_set(MQTT_USER, MQTT_PASS)
 
@@ -184,7 +214,7 @@ def run_mqtt_worker():
     client.on_message = on_message
 
     client.connect(MQTT_HOST, MQTT_PORT, 60)
-    client.loop_forever()  # <--- C'est cette boucle qui maintient le script en vie éternellement
+    client.loop_forever()
 
 if __name__ == "__main__":
     run_mqtt_worker()
