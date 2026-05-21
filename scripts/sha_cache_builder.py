@@ -85,6 +85,7 @@ def on_connect(client, userdata, flags, rc):
         client.subscribe("+/relay/#") 
         client.subscribe("+/status/#")
         client.subscribe("+/events/rpc") # Canal maître pour Shelly Gen3
+        client.publish("cmnd/tasmota_solo/STATUS", "5")
     else:
         print(f"❌ Échec de connexion MQTT (Code {rc})")
 
@@ -132,7 +133,7 @@ def on_message(client, userdata, msg):
                 except json.JSONDecodeError:
                     pass
 
-        # --- CAS 2 : SHELLY (COMPATIBILITÉ TOTALE GEN 1 ET GEN 2/3) ---
+# --- CAS 2 : SHELLY (COMPATIBILITÉ TOTALE GEN 1 ET GEN 2/3) ---
         elif "shelly_192_168_" in parts[0]:
             raw_ip = parts[0].replace("shelly_", "").replace("_", ".")
             if re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$', raw_ip):
@@ -143,15 +144,12 @@ def on_message(client, userdata, msg):
                     try:
                         data = json.loads(payload_str)
                         params = data.get("params", {})
-                        
+
                         for key, value in params.items():
                             if (key.startswith("pm1:") or key.startswith("switch:")) and isinstance(value, dict):
                                 if 'apower' in value:
                                     channel = key.split(':')[-1]
-                                    raw_power = value.get('apower', 0)
-                                    factor = value.get('pf', 1.0)
-                                    final_power = (raw_power / factor) if factor > 0 else raw_power
-                                    update_device_cache(ip, final_power, channel=channel)
+                                    update_device_cache(ip, value.get('apower', 0), channel=channel)
                     except json.JSONDecodeError:
                         pass
 
@@ -161,10 +159,7 @@ def on_message(client, userdata, msg):
                         data = json.loads(payload_str)
                         if 'apower' in data:
                             channel = parts[2].split(':')[-1] if ':' in parts[2] else "0"
-                            raw_power = data.get('apower', 0)
-                            factor = data.get('pf', 1.0)
-                            final_power = (raw_power / factor) if factor > 0 else raw_power
-                            update_device_cache(ip, final_power, channel=channel)
+                            update_device_cache(ip, data.get('apower', 0), channel=channel)
                     except json.JSONDecodeError:
                         pass
 
@@ -189,7 +184,7 @@ def run_mqtt_worker():
     client.on_message = on_message
 
     client.connect(MQTT_HOST, MQTT_PORT, 60)
-    client.loop_forever()
+    client.loop_forever()  # <--- C'est cette boucle qui maintient le script en vie éternellement
 
 if __name__ == "__main__":
     run_mqtt_worker()

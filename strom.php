@@ -29,6 +29,35 @@ if (!is_array($live_data) || !isset($live_data['devices']) || empty($live_data['
 
 $tas_cache = $live_data['devices'];
 
+
+ // --- RECHERCHE DE L'ÉTAT DE LA MACHINE À LAVER ---
+ $monitor_file = '/dev/shm/sha_monitor_state.json';
+ $machine_badge = "";
+ 
+ if (file_exists($monitor_file)) {
+     $monitor_data = json_decode(@file_get_contents($monitor_file), true);
+     if (is_array($monitor_data)) {
+         $state = $monitor_data['state'] ?? 'IDLE';
+         $updated_at = $monitor_data['updated_at'] ?? time();
+         
+         if ($state === 'RUNNING') {
+             $machine_badge = " <span class='badge badge-blue' style='font-size:0.55rem; padding: 2px 5px; margin-left: 5px;'>🔄 LÄUFT</span>";
+         } elseif ($state === 'FINISHED') {
+             $end_time = $monitor_data['end_time'] ?? $updated_at;
+             $time_remaining = (30 * 60) - (time() - $end_time);
+             
+            if ($time_remaining > 0) {
+                 $minutes = floor($time_remaining / 60);
+                 $countdown_str = sprintf("%02dm", $minutes);
+                 // Utilisation de la couleur verte via style inline pour respecter style.css
+                 $machine_badge = " <span class='badge' style='background: #27ae60; color: #fff; font-size:0.55rem; padding: 2px 5px; margin-left: 5px;'>✨ FERTIG ({$countdown_str})</span>";
+             }
+         }
+     }
+ }
+ // --------------------------------------------------
+
+
 // 3. Lecture des compteurs principaux (Verteiler)
 $v_haus = $tas_cache[$sys['ip_verteiler_haus']]['power'] ?? 0; 
 $v_bbh  = $tas_cache[$sys['ip_verteiler_bbh']]['power'] ?? 0;
@@ -95,6 +124,10 @@ foreach ($rooms as $name => $data) {
 
                 $icon = $parts[4] ?? $defaults[$type];
                 $display_label = $label;
+                // IP de ta machine à laver 
+                 if ($ip === '192.168.0.54') {
+                     $display_label .= $machine_badge;
+                 }
                 if ($is_offline) {
                     $display_label .= " <small style='color: var(--red); font-size: 0.55rem;'>⚠️ Offline</small>";
                 }
@@ -165,7 +198,7 @@ foreach ($rooms as $name => $data) {
 // 6. Calculs Globaux
 $gesamt_conso = $v_haus + $solar_watt;
 $abdeckung = ($gesamt_conso > 0) ? min(round(($sum_rooms_consumption / $gesamt_conso) * 100), 100) : 0;
-$autarkie = ($v_haus > 0) ? min(round(($solar_watt / $v_haus) * 100), 100) : (($solar_watt > 0) ? 100 : 0);
+$autarkie = ($v_haus > 0) ? min(round(($solar_watt / $gesamt_conso) * 100), 100) : (($solar_watt > 0) ? 100 : 0);
 
 $netzbezug = max(0, $gesamt_conso - $solar_watt);
 $netzeinspeisung = max(0, $solar_watt - $gesamt_conso);
