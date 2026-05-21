@@ -205,12 +205,13 @@ $netzeinspeisung = max(0, $solar_watt - $gesamt_conso);
 ?>
 
 <div class="container">
-    <div class="room-card" style="margin-bottom: 20px; padding: 20px;">
-        <div style="display: flex; flex-direction: column; align-items: center; text-align: center; margin-bottom: 20px;">
-            <div style="font-size: 0.55rem; font-weight: 900; color: #555; text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 5px;">Gesamtverbrauch</div>
-            <div style="font-size: 2.8rem; font-weight: 900; line-height: 1;"><?= $gesamt_conso ?> <span style="font-size: 1rem; color: #444;">Watt</span></div>
-        </div>
 
+    
+    <div class="room-card" style="margin-bottom: 25px; border: 1px solid #ff980066; padding: 20px; display: flex; flex-direction: column; gap: 15px;">
+        <div class="room-title" style="justify-content: center; color: #ff9800;"><span>⚡</span> GESAMTVERBRAUCH</div>
+        <div style="font-size: 2.8rem; font-weight: 900; line-height: 1;align-items: center; text-align: center;">
+            <?= $gesamt_conso ?> <span style="font-size: 1rem; color: #444;">Watt</span>
+        </div>
         <div style="margin-bottom: 15px;">
             <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
                 <div style="font-size: 0.55rem; font-weight: 900; color: #555; text-transform: uppercase;">Abdeckung (Summe Räume)</div>
