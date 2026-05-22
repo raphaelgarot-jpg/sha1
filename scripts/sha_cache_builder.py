@@ -34,25 +34,40 @@ def clean_expired_devices():
     for ip in expired:
         del cached_devices[ip]
 
-def update_device_cache(ip, power, channel=None):
-    """Met à jour la puissance par canal et calcule la somme totale par IP"""
+def update_device_cache(ip, power=None, state=None, channel=None):
+    """Met à jour le cache centralisé de la RAM de manière générique"""
     global cached_devices
     now = int(time.time())
-    
+
     if ip not in cached_devices:
         cached_devices[ip] = {
             "power": 0.0,
+            "state": "OFF",
             "channels": {},
             "last_seen": now
         }
-    
-    if channel is not None:
-        cached_devices[ip]["channels"][str(channel)] = float(power)
-        total_power = sum(cached_devices[ip]["channels"].values())
-        cached_devices[ip]["power"] = round(total_power, 2)
-    else:
-        cached_devices[ip]["power"] = round(float(power), 2)
-        
+
+    # Mise à jour de la puissance active
+    if power is not None:
+        p_val = float(power)
+        if channel is not None:
+            cached_devices[ip]["channels"][str(channel)] = p_val
+            cached_devices[ip]["power"] = round(sum(cached_devices[ip]["channels"].values()), 2)
+        else:
+            cached_devices[ip]["power"] = round(p_val, 2)
+            
+        if state is None:
+            cached_devices[ip]["state"] = "ON" if cached_devices[ip]["power"] > 2.0 else "OFF"
+
+    # Mise à jour de l'état binaire (ON/OFF)
+    if state is not None:
+        if isinstance(state, bool):
+            cached_devices[ip]["state"] = "ON" if state else "OFF"
+        elif str(state).upper() in ["ON", "TRUE", "1"]:
+            cached_devices[ip]["state"] = "ON"
+        else:
+            cached_devices[ip]["state"] = "OFF"
+
     cached_devices[ip]["last_seen"] = now
     clean_expired_devices()
     write_ram_cache()
@@ -72,11 +87,10 @@ def write_ram_cache():
     except Exception:
         pass
 
-# 2. CALLBACKS MQTT (Version compatible API v1 et v2)
+# 2. CALLBACKS MQTT
 def on_connect(client, userdata, flags, rc, *extra_args):
     if rc == 0:
-        print("✅ Connecté au Broker MQTT. Analyse du flux multi-génération...")
-        # On s'abonne à tout pour ne rien rater des Shelly sans racine fixe
+        print("✅ Connecté au Broker MQTT. Analyse du flux S.H.A. en cours...")
         client.subscribe("#")
         client.publish("cmnd/tasmota_solo/STATUS", "5")
     else:
@@ -93,126 +107,95 @@ def on_message(client, userdata, msg):
 
     try:
         parts = topic.split('/')
-
-        # Mouchard temporaire pour voir passer les Shelly dans la console
-        if "shelly" in parts[0]:
-            print(f"📥 [DEBUG SHELLY] Topic: {topic} | Payload: {payload_str[:80]}")
-
-        # --- CAS 1 : TASMOTA ---
+        device_id = parts[0]
+        
+        # --- CAS 1 : TASMOTA (Ancien flux standard) ---
         if topic.startswith("tele/") or topic.startswith("stat/"):
-            device_id = parts[1] if len(parts) > 1 else parts[0]
+            lookup_id = parts[1] if len(parts) > 1 else device_id
 
             if "STATUS5" in topic and payload_str.startswith("{"):
                 try:
                     data = json.loads(payload_str)
                     ip = data.get("StatusNET", {}).get("IPAddress")
                     if ip and re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$', ip):
-                        topic_to_ip_map[device_id] = ip
-                except json.JSONDecodeError:
-                    pass
+                        topic_to_ip_map[lookup_id] = ip
+                except Exception: pass
 
-            if device_id not in topic_to_ip_map and payload_str.startswith("{"):
+            if lookup_id not in topic_to_ip_map and payload_str.startswith("{"):
                 ip_match = re.search(r'192\.168\.\d+\.\d+', payload_str)
                 if ip_match:
-                    topic_to_ip_map[device_id] = ip_match.group(0)
+                    topic_to_ip_map[lookup_id] = ip_match.group(0)
 
-            ip = topic_to_ip_map.get(device_id)
-            if ip and ("STATUS" in topic or "SENSOR" in topic) and payload_str.startswith("{"):
+            ip = topic_to_ip_map.get(lookup_id)
+            if ip and payload_str.startswith("{"):
                 try:
                     data = json.loads(payload_str)
                     sns = data.get("StatusSNS", data)
+                    if 'ENERGY' in sns and isinstance(sns['ENERGY'], dict):
+                        update_device_cache(ip, power=sns['ENERGY'].get('Power'), state=sns['ENERGY'].get('Process'))
+                    elif 'GS303' in sns and isinstance(sns['GS303'], dict):
+                        update_device_cache(ip, power=sns['GS303'].get('Power_cur'))
+                except Exception: pass
 
-                    if 'GS303' in sns and 'Power_cur' in sns['GS303']:
-                        update_device_cache(ip, sns['GS303'].get('Power_cur', 0))
-                    elif 'ENERGY' in sns and 'Power' in sns['ENERGY']:
-                        update_device_cache(ip, sns['ENERGY'].get('Power', 0))
-                except json.JSONDecodeError:
-                    pass
+        # --- CAS 2 : TOUT APPAREIL AVEC IP DANS LE NOM (Shelly Gen1/Gen2/Gen3) ---
+        else:
+            # Recherche d'une IP au format 192.168.X.X (avec séparateurs _ ou .) dans le nom du topic
+            # Exemple toléré : shelly_Heizung_192.168.0.98, shelly_KS_192_168_0_153, etc.
+            normalized_id = device_id.replace("_", ".")
+            ip_match = re.search(r'192\.168\.\d+\.\d+', normalized_id)
+            
+            if not ip_match:
+                return  # Si pas d'IP dans le topic, on ignore
+                
+            ip = ip_match.group(0)
 
-# --- CAS 2 : SHELLY (COMPATIBILITÉ FINALE GEN 2 & 3) ---
-        elif "shelly" in parts[0]:
-            device_id = parts[0]
-
-            # 1. Résolution de l'IP pour le format "shelly_192_168_X_X"
-            if "shelly_192_168_" in device_id:
-                raw_ip = device_id.replace("shelly_", "").replace("_", ".")
-                if re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$', raw_ip):
-                    topic_to_ip_map[device_id] = raw_ip
-
-            # 2. Résolution de l'IP pour les IDs en texte (Mappage de secours ou dynamique)
             if payload_str.startswith("{"):
                 try:
                     data = json.loads(payload_str)
-                    sta_ip = None
-                    if "wifi" in data and "sta_ip" in data["wifi"]:
-                        sta_ip = data["wifi"]["sta_ip"]
-                    elif "params" in data and "wifi" in data["params"] and "sta_ip" in data["params"]["wifi"]:
-                        sta_ip = data["params"]["wifi"]["sta_ip"]
-                        
-                    if sta_ip and re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$', sta_ip):
-                        topic_to_ip_map[device_id] = sta_ip
-                except Exception:
-                    pass
-
-            # 3. EXTRACTION DIRECTE DE LA PUISSANCE (On cible les sous-topics de statut)
-            if "/status/" in topic and payload_str.startswith("{"):
-                try:
-                    data = json.loads(payload_str)
-                    if 'apower' in data:
-                        # Si l'IP n'est pas encore découverte dynamiquement pour cet ID, 
-                        # on utilise une correspondance temporaire basée sur tes configurations
-                        ip = topic_to_ip_map.get(device_id)
-                        if not ip:
-                            if "e4b32317de0c" in device_id:
-                                ip = "192.168.0.141"  # Ton Shelly 1PM Mini Gen3
-                            elif "dcda0ce8d81c" in device_id:
-                                ip = "192.168.0.153"  # Ton Shelly PM Mini Gen3
-                            else:
-                                return # IP inconnue, on passe
-
-                        # Récupération du canal depuis le topic (ex: "pm1:0" ou "switch:0")
+                    
+                    # Détection dans le sous-topic ciblé (ex: status/switch:0 ou status/pm1:0)
+                    if "status" in topic:
                         sub_key = parts[-1]
                         channel = sub_key.split(':')[-1] if ':' in sub_key else "0"
                         
-                        # Injection immédiate de la puissance active
-                        update_device_cache(ip, data.get('apower', 0.0), channel=channel)
-                except Exception:
-                    pass
-
-            # 4. Lecture de secours via les évènements globaux RPC
-            elif "/events/rpc" in topic and payload_str.startswith("{"):
-                try:
-                    data = json.loads(payload_str)
-                    ip = topic_to_ip_map.get(device_id)
-                    if not ip and "e4b32317de0c" in device_id: ip = "192.168.0.141"
-                    if not ip and "dcda0ce8d81c" in device_id: ip = "192.168.0.153"
-                    
-                    if ip:
-                        params = data.get("params", {})
-                        for key, value in params.items():
-                            if (key.startswith("pm1:") or key.startswith("switch:")) and isinstance(value, dict):
-                                if 'apower' in value:
-                                    channel = key.split(':')[-1]
-                                    update_device_cache(ip, value.get('apower', 0.0), channel=channel)
-                except Exception:
-                    pass
+                        # Lecture directe racine du sous-topic
+                        if 'apower' in data or 'output' in data:
+                            update_device_cache(ip, power=data.get('apower'), state=data.get('output'), channel=channel)
+                        
+                        # Lecture dans le dictionnaire imbriqué (si présent)
+                        for key in list(data.keys()):
+                            if (key.startswith("pm1:") or key.startswith("switch:")) and isinstance(data[key], dict):
+                                ch = key.split(':')[-1]
+                                update_device_cache(ip, power=data[key].get('apower'), state=data[key].get('output'), channel=ch)
+                                
+                    # Détection dans les évènements globaux RPC (events/rpc)
+                    elif "events" in topic or "rpc" in topic:
+                        root_data = data.get("params", data)
+                        for key in list(root_data.keys()):
+                            if (key.startswith("pm1:") or key.startswith("switch:")) and isinstance(root_data[key], dict):
+                                ch = key.split(':')[-1]
+                                update_device_cache(ip, power=root_data[key].get('apower'), state=root_data[key].get('output'), channel=ch)
+                except Exception: pass
+            else:
+                # Fallback texte brut pour Shelly Gen1
+                if "/relay/" in topic and topic.endswith("/power"):
+                    try: update_device_cache(ip, power=float(payload_str), channel=parts[2])
+                    except ValueError: pass
+                elif "/relay/" in topic and re.match(r'^\d+$', parts[-1]):
+                    update_device_cache(ip, state=payload_str, channel=parts[-1])
 
     except Exception as e:
-        print(f"⚠️ Erreur lors du traitement d'un message: {e}")
+        print(f"⚠️ Erreur traitement message: {e}")
 
 def run_mqtt_worker():
-    # Déclaration compatible avec les anciennes et nouvelles versions de Paho-MQTT
-    try:
-        client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION1)
-    except AttributeError:
-        client = mqtt.Client()
+    try: client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION1)
+    except AttributeError: client = mqtt.Client()
 
     if MQTT_USER and MQTT_PASS:
         client.username_pw_set(MQTT_USER, MQTT_PASS)
 
     client.on_connect = on_connect
     client.on_message = on_message
-
     client.connect(MQTT_HOST, MQTT_PORT, 60)
     client.loop_forever()
 

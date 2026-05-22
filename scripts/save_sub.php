@@ -1,7 +1,7 @@
 <?php
 
 // 2. LOGIQUE MULTI-APPAREILS
-$sub_file = 'config/devices.json';
+$sub_file = dirname(__DIR__) . '/config/devices.json';
 $raw_data = file_get_contents('php://input');
 $new_sub = json_decode($raw_data, true);
 

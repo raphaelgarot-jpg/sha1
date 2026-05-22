@@ -21,17 +21,18 @@ function sendRoll(master, slave, state, btn) {
     });
 }
 
-// --- SERVICE WORKER & NOTIFICATIONS ---
+// --- SERVICE WORKER & NOTIFICATIONS SÉCURISÉ ---
 if ('serviceWorker' in navigator) {
-window.addEventListener('load', () => {
-        navigator.serviceWorker.register('sw.js')
+    window.addEventListener('load', () => {
+        // 💡 On force le chemin absolu /sha/sw.js et on verrouille le scope au sous-dossier
+        navigator.serviceWorker.register('/sha/sw.js', { scope: '/sha/' })
             .then(registration => {
                 console.log('Service Worker enregistré avec succès:', registration);
             })
             .catch(error => {
                 console.error('Échec de l\'enregistrement du Service Worker:', error);
         });
-});
+    });
 }
 
 // 1. Nettoyage du badge iOS à l'ouverture de l'app
