@@ -24,9 +24,10 @@ $rooms = parse_ini_file($config_path, true);
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="SHA">
-    <link rel="apple-touch-icon" href="assets/img/favicon.png">
-    <link rel="manifest" href="assets/manifest.json">
+    <meta name="apple-mobile-web-app-title" content="S.H.A. 2026">
+    <link rel="apple-touch-icon" href="/sha/assets/img/favicon.png">
+    <link rel="apple-touch-icon-precomposed" href="/sha/assets/img/favicon.png">
+    <link rel="manifest" href="/sha/manifest.json">
     <title>S.H.A. 2026</title>
 
     <link rel="icon" type="image/png" href="assets/img/favicon.png">
@@ -56,6 +57,24 @@ $rooms = parse_ini_file($config_path, true);
             }
         });
 
+
+        // --- VERROU ABSOLU PLEIN ÉCRAN IOS ---
+if (("standalone" in window.navigator) && window.navigator.standalone) {
+    document.addEventListener("click", function(e) {
+        let element = e.target;
+        // On remonte les éléments parents si on a cliqué sur un texte ou une icône dans le lien
+        while (element && element.nodeName !== "A") {
+            element = element.parentNode;
+        }
+        if (element && element.href) {
+            // Si le lien reste sur ton IP, on force le chargement INTERNE
+            if (element.href.indexOf(location.hostname) !== -1) {
+                e.preventDefault();
+                window.location.href = element.href;
+            }
+        }
+    }, false);
+}
     </script>
 
 

@@ -1,0 +1,23 @@
+{
+  "name": "S.H.A. 2026",
+  "short_name": "S.H.A.",
+  "start_url": "/sha/index.php",
+  "scope": "/sha/",
+  "display": "standalone",
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "icons": [
+    {
+      "src": "/sha/assets/img/favicon.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/sha/assets/img/favicon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}

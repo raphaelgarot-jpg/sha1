@@ -30,31 +30,30 @@ if (!is_array($live_data) || !isset($live_data['devices']) || empty($live_data['
 $tas_cache = $live_data['devices'];
 
 
- // --- RECHERCHE DE L'ÉTAT DE LA MACHINE À LAVER ---
- $monitor_file = '/dev/shm/sha_monitor_state.json';
- $machine_badge = "";
- 
- if (file_exists($monitor_file)) {
-     $monitor_data = json_decode(@file_get_contents($monitor_file), true);
-     if (is_array($monitor_data)) {
-         $state = $monitor_data['state'] ?? 'IDLE';
-         $updated_at = $monitor_data['updated_at'] ?? time();
-         
-         if ($state === 'RUNNING') {
-             $machine_badge = " <span class='badge badge-blue' style='font-size:0.55rem; padding: 2px 5px; margin-left: 5px;'>🔄 LÄUFT</span>";
-         } elseif ($state === 'FINISHED') {
-             $end_time = $monitor_data['end_time'] ?? $updated_at;
-             $time_remaining = (30 * 60) - (time() - $end_time);
-             
-            if ($time_remaining > 0) {
-                 $minutes = floor($time_remaining / 60);
-                 $countdown_str = sprintf("%02dm", $minutes);
-                 // Utilisation de la couleur verte via style inline pour respecter style.css
-                 $machine_badge = " <span class='badge' style='background: #27ae60; color: #fff; font-size:0.55rem; padding: 2px 5px; margin-left: 5px;'>✨ FERTIG ({$countdown_str})</span>";
-             }
-         }
-     }
- }
+// --- RECHERCHE DES ÉTATS ÉLECTROMÉNAGERS ---
+$machine_badges = ['192.168.0.54' => '', '192.168.0.49' => ''];
+$monitor_files = [
+    '192.168.0.54' => '/dev/shm/sha_monitor_state_wm.json',
+    '192.168.0.49' => '/dev/shm/sha_monitor_state_gs.json'
+];
+
+foreach ($monitor_files as $ip => $file) {
+    if (file_exists($file)) {
+        $monitor_data = json_decode(@file_get_contents($file), true);
+        if (is_array($monitor_data)) {
+            $state = $monitor_data['state'] ?? 'IDLE';
+            if ($state === 'RUNNING') {
+                $machine_badges[$ip] = " <span class='badge badge-blue' style='font-size:0.55rem; padding: 2px 5px; margin-left: 5px;'>🔄 LÄUFT</span>";
+            } elseif ($state === 'FINISHED') {
+                $time_left = $monitor_data['time_left_display'] ?? 0;
+                if ($time_left > 0) {
+                    $countdown_str = sprintf("%02dm", ceil($time_left / 60));
+                    $machine_badges[$ip] = " <span class='badge' style='background: #27ae60; color: #fff; font-size:0.55rem; padding: 2px 5px; margin-left: 5px;'>✨ FERTIG ({$countdown_str})</span>";
+                }
+            }
+        }
+    }
+}
  // --------------------------------------------------
 
 
@@ -125,9 +124,9 @@ foreach ($rooms as $name => $data) {
                 $icon = $parts[4] ?? $defaults[$type];
                 $display_label = $label;
                 // IP de ta machine à laver 
-                 if ($ip === '192.168.0.54') {
-                     $display_label .= $machine_badge;
-                 }
+                 if (array_key_exists($ip, $machine_badges)) {
+                    $display_label .= $machine_badges[$ip];
+                }
                 if ($is_offline) {
                     $display_label .= " <small style='color: var(--red); font-size: 0.55rem;'>⚠️ Offline</small>";
                 }
@@ -207,7 +206,7 @@ $netzeinspeisung = max(0, $solar_watt - $gesamt_conso);
 <div class="container">
 
     
-    <div class="room-card" style="margin-bottom: 25px; border: 1px solid #ff980066; padding: 20px; display: flex; flex-direction: column; gap: 15px;">
+    <div class="room-card" style="margin-bottom: 25px; border: 1px solid #ff980066;border-top: 3px solid #ff9800; padding: 20px; display: flex; flex-direction: column; gap: 15px;">
         <div class="room-title" style="justify-content: center; color: #ff9800;"><span>⚡</span> GESAMTVERBRAUCH</div>
         <div style="font-size: 2.8rem; font-weight: 900; line-height: 1;align-items: center; text-align: center;">
             <?= $gesamt_conso ?> <span style="font-size: 1rem; color: #444;">Watt</span>
@@ -234,15 +233,15 @@ $netzeinspeisung = max(0, $solar_watt - $gesamt_conso);
     </div>
 
     <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-bottom: 30px;">
-        <div class="room-card" style="padding: 15px; text-align: center;">
+        <div class="room-card" style="padding: 15px; text-align: center;border: 1px solid #ff980066;">
             <div style="font-size: 0.5rem; font-weight: 900; color: #555;">VERTEILER HAUS</div>
             <div style="font-size: 1.4rem; font-weight: 900; color: var(--accent);"><?= $v_haus ?> W</div>
         </div>
-        <div class="room-card" style="padding: 15px; text-align: center;">
+        <div class="room-card" style="padding: 15px; text-align: center;border: 1px solid #ff980066;">
             <div style="font-size: 0.5rem; font-weight: 900; color: #555;">SOLAR</div>
             <div style="font-size: 1.4rem; font-weight: 900; color: var(--solar);"><?= $solar_watt ?> W</div>
         </div>
-        <div class="room-card" style="padding: 15px; text-align: center;">
+        <div class="room-card" style="padding: 15px; text-align: center;border: 1px solid #ff980066;">
             <div style="font-size: 0.5rem; font-weight: 900; color: #555;">VERTEILER BBH</div>
             <div style="font-size: 1.4rem; font-weight: 900; color: var(--green);"><?= $v_bbh ?> W</div>
         </div>
