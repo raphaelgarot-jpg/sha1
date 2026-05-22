@@ -318,3 +318,109 @@ body {
     div[style*="grid-template-columns: repeat(auto-fill, minmax(400px, 1fr))"] { grid-template-columns: 1fr !important; }
 }
 .btn-sw.loading { opacity: 0.5; cursor: wait; filter: grayscale(1); transition: 0.2s; }
+/* --- S.H.A. COCKPIT : STECKDOSE & LIGHTS --- */
+.room-card {
+    background: #111111;
+    border-radius: 12px;
+    border: 1px solid #222222;
+    margin-bottom: 20px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+}
+
+.room-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 15px 20px;
+    border-bottom: 1px solid #222222;
+}
+
+.room-title {
+    font-size: 1rem;
+    font-weight: 700;
+    color: #ffffff;
+    letter-spacing: 0.5px;
+}
+
+.dev-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 10px;
+    border-bottom: 1px solid #22222244;
+    transition: all 0.3s ease;
+}
+
+.dev-row.offline {
+    opacity: 0.4;
+    border-left: 3px solid transparent;
+}
+
+.dev-row.state-on {
+    border-left: 3px solid #27ae60;
+    background: rgba(39, 174, 96, 0.02);
+}
+
+.dev-row.state-off {
+    border-left: 3px solid transparent;
+}
+
+.dev-name {
+    font-size: 0.85rem;
+    color: #cccccc;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.status-text {
+    font-size: 0.7rem;
+    margin-left: 4px;
+}
+
+.status-text.on { color: #27ae60; font-weight: bold; }
+.status-text.off { color: #777777; font-weight: normal; }
+.status-text.offline { color: #e74c3c; font-weight: normal; }
+
+.toggle-btn {
+    color: #ffffff;
+    border: none;
+    padding: 5px 16px;
+    font-size: 0.75rem;
+    font-weight: 900;
+    border-radius: 6px;
+    cursor: pointer;
+    min-width: 65px;
+    transition: all 0.2s ease;
+}
+
+.toggle-btn.btn-on { background: #d63031; } /* Prochaine action possible: OFF */
+.toggle-btn.btn-off { background: #27ae60; } /* Prochaine action possible: ON */
+
+.badge {
+    font-size: 0.75rem;
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-weight: bold;
+}
+.badge-blue { background: #2980b922; color: #3498db; border: 1px solid #3498db44; }
+/* --- CONFIGURATION DES COLONNES DE PIÈCES --- */
+.grid-2-columns {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0 40px; /* Écart parfait entre la colonne de gauche et de droite */
+}
+
+.flex-column {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+/* 📱 Sécurité Mobile : On repasse sur une seule colonne si l'écran est petit */
+@media (max-width: 768px) {
+    .grid-2-columns {
+        grid-template-columns: 1fr;
+        gap: 0;
+    }
+}

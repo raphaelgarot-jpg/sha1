@@ -55,7 +55,7 @@ def update_device_cache(ip, power=None, state=None, channel=None):
             cached_devices[ip]["power"] = round(sum(cached_devices[ip]["channels"].values()), 2)
         else:
             cached_devices[ip]["power"] = round(p_val, 2)
-            
+
         if state is None:
             cached_devices[ip]["state"] = "ON" if cached_devices[ip]["power"] > 2.0 else "OFF"
 
@@ -92,6 +92,7 @@ def on_connect(client, userdata, flags, rc, *extra_args):
     if rc == 0:
         print("✅ Connecté au Broker MQTT. Analyse du flux S.H.A. en cours...")
         client.subscribe("#")
+        # 💡 Premier coup de sonde immédiat lors de la connexion
         client.publish("cmnd/tasmota_solo/STATUS", "5")
     else:
         print(f"❌ Échec de connexion MQTT (Code {rc})")
@@ -108,17 +109,19 @@ def on_message(client, userdata, msg):
     try:
         parts = topic.split('/')
         device_id = parts[0]
-        
-        # --- CAS 1 : TASMOTA (Ancien flux standard) ---
+
+# --- CAS 1 : TASMOTA (Flux standard + Gestion Multi-Relais) ---
         if topic.startswith("tele/") or topic.startswith("stat/"):
             lookup_id = parts[1] if len(parts) > 1 else device_id
 
+            # INTERCEPTION DE LA DEMANDE GLOBALE STATUS 5
             if "STATUS5" in topic and payload_str.startswith("{"):
                 try:
                     data = json.loads(payload_str)
                     ip = data.get("StatusNET", {}).get("IPAddress")
                     if ip and re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$', ip):
                         topic_to_ip_map[lookup_id] = ip
+                        update_device_cache(ip)
                 except Exception: pass
 
             if lookup_id not in topic_to_ip_map and payload_str.startswith("{"):
@@ -130,6 +133,21 @@ def on_message(client, userdata, msg):
             if ip and payload_str.startswith("{"):
                 try:
                     data = json.loads(payload_str)
+                    
+                    # 💡 DECOUVERTE MULTI-RELAIS (POWER1, POWER2, POWER3, POWER4...)
+                    # On parcourt la racine du JSON pour intercepter l'état de chaque canal séparé
+                    for key, val in data.items():
+                        if key.startswith("POWER"):
+                            channel_num = key.replace("POWER", "")
+                            if channel_num == "": 
+                                channel_num = "1" # Si c'est juste "POWER" -> Canal 1
+                            
+                            # On traduit ON/OFF en 1.0 / 0.0 pour peupler le sous-tableau 'channels'
+                            # de manière à valider la condition PHP ($dev_data['channels'][$relay] > 0)
+                            ch_state = 1.0 if str(val).upper() in ["ON", "TRUE", "1"] else 0.0
+                            update_device_cache(ip, power=ch_state, channel=channel_num)
+
+                    # PARSING DE LA PUISSANCE REELLE (Si présente dans le bloc ENERGY)
                     sns = data.get("StatusSNS", data)
                     if 'ENERGY' in sns and isinstance(sns['ENERGY'], dict):
                         update_device_cache(ip, power=sns['ENERGY'].get('Power'), state=sns['ENERGY'].get('Process'))
@@ -139,36 +157,30 @@ def on_message(client, userdata, msg):
 
         # --- CAS 2 : TOUT APPAREIL AVEC IP DANS LE NOM (Shelly Gen1/Gen2/Gen3) ---
         else:
-            # Recherche d'une IP au format 192.168.X.X (avec séparateurs _ ou .) dans le nom du topic
-            # Exemple toléré : shelly_Heizung_192.168.0.98, shelly_KS_192_168_0_153, etc.
             normalized_id = device_id.replace("_", ".")
             ip_match = re.search(r'192\.168\.\d+\.\d+', normalized_id)
-            
+
             if not ip_match:
                 return  # Si pas d'IP dans le topic, on ignore
-                
+
             ip = ip_match.group(0)
 
             if payload_str.startswith("{"):
                 try:
                     data = json.loads(payload_str)
-                    
-                    # Détection dans le sous-topic ciblé (ex: status/switch:0 ou status/pm1:0)
+
                     if "status" in topic:
                         sub_key = parts[-1]
                         channel = sub_key.split(':')[-1] if ':' in sub_key else "0"
-                        
-                        # Lecture directe racine du sous-topic
+
                         if 'apower' in data or 'output' in data:
                             update_device_cache(ip, power=data.get('apower'), state=data.get('output'), channel=channel)
-                        
-                        # Lecture dans le dictionnaire imbriqué (si présent)
+
                         for key in list(data.keys()):
                             if (key.startswith("pm1:") or key.startswith("switch:")) and isinstance(data[key], dict):
                                 ch = key.split(':')[-1]
                                 update_device_cache(ip, power=data[key].get('apower'), state=data[key].get('output'), channel=ch)
-                                
-                    # Détection dans les évènements globaux RPC (events/rpc)
+
                     elif "events" in topic or "rpc" in topic:
                         root_data = data.get("params", data)
                         for key in list(root_data.keys()):
@@ -177,7 +189,6 @@ def on_message(client, userdata, msg):
                                 update_device_cache(ip, power=root_data[key].get('apower'), state=root_data[key].get('output'), channel=ch)
                 except Exception: pass
             else:
-                # Fallback texte brut pour Shelly Gen1
                 if "/relay/" in topic and topic.endswith("/power"):
                     try: update_device_cache(ip, power=float(payload_str), channel=parts[2])
                     except ValueError: pass
@@ -187,7 +198,8 @@ def on_message(client, userdata, msg):
     except Exception as e:
         print(f"⚠️ Erreur traitement message: {e}")
 
-def run_mqtt_worker():
+# 3. LANCEMENT DU POLLING CRON INTERNE ET DU THREAD MQTT
+def run_cache_builder():
     try: client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION1)
     except AttributeError: client = mqtt.Client()
 
@@ -197,7 +209,23 @@ def run_mqtt_worker():
     client.on_connect = on_connect
     client.on_message = on_message
     client.connect(MQTT_HOST, MQTT_PORT, 60)
-    client.loop_forever()
+    
+    # 💡 CHANGEMENT STRATÉGIQUE : On utilise loop_start() au lieu de loop_forever() 
+    # pour exécuter notre boucle temporelle Python juste en dessous.
+    client.loop_start()
+
+    print("🚀 Boucle de scrutation centrale démarrée (Polling Status 5 toutes les 5 min).")
+    try:
+        while True:
+            # Envoie une requête d'état de masse à toutes les prises du groupe
+            client.publish("cmnd/tasmota_solo/STATUS", "5")
+            
+            # Pause de 5 minutes (300 secondes)
+            time.sleep(300)
+            
+    except KeyboardInterrupt:
+        print("🛑 Arrêt du cache builder.")
+        client.loop_stop()
 
 if __name__ == "__main__":
-    run_mqtt_worker()
+    run_cache_builder()

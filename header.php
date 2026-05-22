@@ -1,6 +1,10 @@
 <?php
-error_reporting(0);
-ini_set('display_errors', 0);
+// 🔴 À AJOUTER TEMPORAIREMENT POUR LE DÉBOGAGE
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
+error_reporting(E_ALL);
+//error_reporting(0);
+//ini_set('display_errors', 0);
 
 
 if (session_status() === PHP_SESSION_NONE) { session_start(); }

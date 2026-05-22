@@ -626,3 +626,38 @@ Dépendances critiques à maintenir (Gestion des versions) :
 
         Commande de restauration stricte : ```bash
         /root/.pyenv/versions/3.12.3/bin/pip install "paho-mqtt<2.0.0" --force-reinstall
+
+
+        ___________________________________
+        22.05.2026
+
+        🗺️ 1. Architecture des FichiersL'infrastructure respecte une logique stricte de centralisation afin de séparer la présentation (HTML), le style (CSS), l'interactivité (JS) et la logique métier (PHP/Python) :Plaintext/var/www/html/sha/
+├── assets/
+│   └── css/
+│       └── style.css            # Centralisation de toute la charte graphique (Sidebar, Cards, Grids)
+├── core/
+│   ├── functions.php            # Fonctions backend globales (Lecture cache RAM, Traitement AJAX actions)
+│   └── functions.js             # Logique frontend unifiée (Délégation de clics, Volets, Auto-Refresh)
+├── data/
+│   └── sha_live.json            # 🔗 Lien symbolique vers /dev/shm/sha_live.json (Cache RAM ultrarapide)
+├── config/
+│   ├── app.conf                 # Identifiants sécurisés (MQTT, Base de données)
+│   └── home_structure.conf      # Arborescence des pièces et assignation des devices
+├── scripts/
+│   └── sha_cache_builder.py     # Daemon de capture MQTT et orchestrateur de requêtes de masse (Polling)
+└── steckdose.php                # Vue Cockpit épurée pour le contrôle des prises et lumières
+🧠 2. Logique d'Affichage & d'Actionneur (steckdose.php)La page a été vidée de tout code superflu. Elle agit comme une simple boucle de rendu HTML.Prise en charge des types : Scanne et affiche dynamiquement les types socket, light, et light_p.Affichage adaptatif (Responsive Grids) : Les pièces s'organisent en grille fluide. L'Arbeitszimmer prend deux colonnes sur grand écran grâce à la classe .grid-2-columns et repasse en une seule colonne sur mobile.Statut unifié : La mention textuelle (🟢 ON, ⚫ OFF, ⚠️ Offline) est placée juste à côté du libellé de l'appareil. Le bouton à droite affiche uniquement la prochaine action disponible (Bouton vert "ON" pour allumer, Bouton rouge "OFF" pour éteindre).⚡ 3. Le Noyau Frontend Centralisé (core/functions.js)Le script JavaScript gère deux mécanismes critiques pour garantir la réactivité sans coupure :Auto-Refresh Invisible (DOM Parsing) : Toutes les 10 secondes, le script aspire la page actuelle en tâche de fond pour mettre à jour les états, les pastilles et le compte des périphériques actifs sans recharger l'interface utilisateur.Délégation d'Événements (Event Delegation) : Pour éviter que l'Auto-Refresh ne détruise les écouteurs de clics lors de la réécriture du code HTML, le script écoute le document global. L'interactivité des boutons ON/OFF est ainsi éternelle.Sécurité Allemande (Deutsche Sicherheit) : Pour éliminer les erreurs de manipulation sur écran tactile, toute tentative d'extinction (nextAction === 'OFF') déclenche une confirmation explicite :⚠️ S.H.A. Sicherheit: Sind Sie sicher, dass Sie das Gerät "[Nom]" AUSSCHALTEN möchten?📡 4. Pipeline de Données & Cache Multi-Relais (MQTT $\rightarrow$ Python $\rightarrow$ RAM)Le flux d'informations a été inversé pour éliminer la charge CPU sur les modules Tasmota :[Prises Tasmota] 
+       │ (Réponses Status 5 & Télémétrie STATE)
+       ▼
+ [Broker MQTT]
+       │
+       ▼
+[sha_cache_builder.py] ──(Traduction POWER1..4 en 1.0/0.0)──► [/dev/shm/sha_live.json]
+                                                                      │
+                                                        (Lecture RAM) │
+                                                                      ▼
+                                                              [steckdose.php]
+Le Polling Centralisé (Requête de masse)Toutes les 5 minutes (300s), le script Python balance un ordre groupé sur le topic global : cmnd/tasmota_solo/STATUS 5. Toutes les prises connectées répondent instantanément en publiant leur configuration réseau. Le script extrait l'adresse IP et l'associe à l'identifiant MQTT de l'appareil dans la table topic_to_ip_map.Parsing Multi-Relais (Blocs à 4 prises)Lorsqu'un message de statut STATE arrive, le script Python scanne la racine du JSON à la recherche de clés commençant par POWER (POWER1, POWER2, etc.).Il convertit l'état textuel (ON $\rightarrow$ 1.0 / OFF $\rightarrow$ 0.0).Il injecte ces valeurs dans l'objet channels du cache RAM.Le fichier PHP valide instantanément la ligne grâce au test :PHP$current_state = ($dev_data['channels'][$relay] > 0) ? "ON" : "OFF";
+🛠️ 5. Maintenance & Commandes UtilesPour toute modification dans la structure de capture ou l'ajout de règles de parsing, l'ensemble des scripts s'administre via le service système global de la machine.Redémarrer l'orchestrateur de cache :Bashsystemctl restart sha-worker.service
+Vérifier le bon fonctionnement des scripts en temps réel :Bashjournalctl -u sha-worker.service -f
+Surveiller l'intégrité du fichier de cache en RAM :Bashcat /dev/shm/sha_live.json

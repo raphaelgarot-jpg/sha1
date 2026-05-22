@@ -130,5 +130,103 @@ function startAutoRefresh() {
     }, refreshInterval);
 }
 
-// On lance le script une fois que le navigateur a fini de charger la structure de la page
+/**
+ * Initialise le contrôle des boutons via délégation d'événement (Résistant à l'Auto-Refresh & PWA)
+ */
+function initDeviceToggles() {
+    // 💡 Délégation d'événement : On écoute le document entier
+    document.addEventListener('click', function(event) {
+        // On vérifie si l'élément cliqué (ou son parent proche) est un toggle-btn
+        var button = event.target.closest('.toggle-btn');
+        if (!button) return; // Si ce n'est pas un bouton de prise, on ignore
+
+        var btn = button;
+        var ip = btn.getAttribute('data-ip');
+        var relay = btn.getAttribute('data-relay');
+        var currentState = btn.getAttribute('data-state');
+        var label = btn.getAttribute('data-label');
+
+        var nextAction = (currentState === 'ON') ? 'OFF' : 'ON';
+        var devRow = btn.closest('.dev-row');
+
+        // 🔐 DEUTSCHE SICHERHEIT : Schutz vor Missklicks beim Ausschalten
+        if (nextAction === 'OFF') {
+            var confirmCut = confirm("⚠️ S.H.A. Sicherheit: Sind Sie sicher, dass Sie das Gerät \"" + label + "\" AUSSCHALTEN möchten?");
+            if (!confirmCut) return;
+        }
+
+        btn.style.opacity = "0.5";
+        btn.disabled = true;
+
+        var formData = new FormData();
+        formData.append('action', nextAction);
+        formData.append('ip', ip);
+        formData.append('relay', relay);
+
+        fetch('steckdose.php', {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => {
+            if (!response.ok) throw new Error("HTTP-Fehler " + response.status);
+            return response.text();
+        })
+        .then(text => {
+            btn.style.opacity = "1";
+            btn.disabled = false;
+
+            try {
+                var cleanJson = text.substring(text.indexOf('{'), text.lastIndexOf('}') + 1);
+                // 💡 CORRECTION : "JSON" en majuscules
+                var data = JSON.parse(cleanJson); 
+            } catch(e) {
+                var data = { success: true, new_state: nextAction };
+            }
+
+            if (data.success) {
+                updateDeviceUI(btn, devRow, data.new_state);
+            } else {
+                alert("❌ Fehlgeschlagen: " + (data.message || "Kommunikationsfehler."));
+            }
+        })
+        .catch(error => {
+            btn.style.opacity = "1";
+            btn.disabled = false;
+            // Optimistische UI
+            updateDeviceUI(btn, devRow, nextAction);
+        });
+    });
+}
+
+/**
+ * Met à jour l'interface graphique d'une ligne de périphérique
+ */
+function updateDeviceUI(btn, devRow, state) {
+    var statusText = devRow.querySelector('.status-text');
+
+    if (state === 'ON') {
+        btn.className = "toggle-btn btn-on";
+        btn.textContent = "OFF";
+        btn.setAttribute('data-state', 'ON');
+
+        if (devRow) devRow.className = "dev-row state-on";
+        if (statusText) {
+            statusText.className = "status-text on";
+            statusText.innerHTML = "🟢 ON";
+        }
+    } else {
+        btn.className = "toggle-btn btn-off";
+        btn.textContent = "ON";
+        btn.setAttribute('data-state', 'OFF');
+
+        if (devRow) devRow.className = "dev-row state-off";
+        if (statusText) {
+            statusText.className = "status-text off";
+            statusText.innerHTML = "⚫ OFF";
+        }
+    }
+}
+
+// Amorçage des scripts globaux
+document.addEventListener("DOMContentLoaded", initDeviceToggles);
 document.addEventListener("DOMContentLoaded", startAutoRefresh);
