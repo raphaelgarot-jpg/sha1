@@ -1,7 +1,7 @@
 <?php
 include("header.php");
 
-// 1. Chargement config
+// 1. Chargement de la configuration
 $rooms = parse_ini_file('config/home_structure.conf', true);
 $sys = $rooms['System'];
 $defaults = $rooms['Defaults'] ?? [];
@@ -54,49 +54,63 @@ foreach ($monitor_files as $ip => $file) {
         }
     }
 }
- // --------------------------------------------------
 
 
-// 3. Lecture des compteurs principaux (Verteiler)
-$v_haus = $tas_cache[$sys['ip_verteiler_haus']]['power'] ?? 0; 
+// 3. Lecture des compteurs principaux (Shelly 3EM / Pro 3EM)
+$v_haus = $tas_cache[$sys['ip_verteiler_haus']]['power'] ?? 0;
 $v_bbh  = $tas_cache[$sys['ip_verteiler_bbh']]['power'] ?? 0;
 
-// 4. Lecture et ajustement des données DRS (RAM)
-$drs_file = $sys['drs_data_file'];
-$drs_data = [];
-$drs_warning = false;
+// 4. Solaire (Lecture directe depuis le cache global)
+$solar_watt = $tas_cache[$sys['ip_solar_tasmota']]['power'] ?? 0;
 
-if (file_exists($drs_file)) {
-    $drs_data = json_decode(@file_get_contents($drs_file), true);
-    
-    // --- LOGIQUE DE SOUSTRACTION ---
-    $p_bildschirm = $tas_cache['192.168.0.64']['power'] ?? 0;
 
-    if (isset($drs_data['PC Raf + TV'])) {
-        $drs_data['PC Raf + TV'] = max(0, $drs_data['PC Raf + TV'] - $p_bildschirm);
+// 💡 4.5 PASSE DE PRÉ-CALCUL : Extraction des puissances temps réel pour soustractions croisées
+$p_pc_famille = 0;
+$p_bildschirm_raf = 0;
+
+foreach ($rooms as $r_name => $r_data) {
+    if (in_array($r_name, ['System', 'Defaults'])) continue;
+    if (!empty($r_data['devices']) && is_array($r_data['devices'])) {
+        foreach ($r_data['devices'] as $dev) {
+            $parts = explode('|', $dev);
+            if (count($parts) < 4) continue;
+            list($type, $ip, $relay, $label) = $parts;
+            
+            // On extrait la puissance brute pour analyse
+            $dev_power = 0;
+            $dev_data = $tas_cache[$ip] ?? null;
+            if ($dev_data !== null && abs(time() - ($dev_data['last_seen'] ?? 0)) < 600) {
+                if (isset($dev_data['channel_states']) && isset($dev_data['channels'][$relay])) {
+                    $dev_power = $dev_data['channels'][$relay];
+                } else {
+                    $dev_power = $dev_data['power'] ?? 0.0;
+                }
+            }
+
+            // Capture dynamique pour la soustraction Famille
+            if (strpos(strtolower($label), 'pc famille') !== false) {
+                $p_pc_famille = $dev_power;
+            }
+            // Capture dynamique pour la soustraction Raf
+            if (strpos(strtolower($label), 'bildschirm raf') !== false) {
+                $p_bildschirm_raf = $dev_power;
+            }
+        }
     }
-    // -------------------------------
-
-    if ((time() - filemtime($drs_file)) > 7200) { $drs_warning = true; }
-} else {
-    $drs_warning = true;
 }
 
-// 4. Solaire (Lecture dans le json global avec le format objet)
-$solar_watt = $tas_cache[$sys['ip_solar_tasmota']]['power'] ?? 0;
 
 // 5. Initialisation pour le calcul global
 $sum_rooms_consumption = 0;
-$rendered_cards_html = ""; // Stockage temporaire du HTML des cartes
+$rendered_cards_html = ""; 
 
-foreach ($rooms as $name => $data) { 
-    if ($name == 'System') continue;
+foreach ($rooms as $name => $data) {
+    if (in_array($name, ['System', 'Defaults'])) continue;
 
     $dev_list = [];
     $room_total = 0;
-    
-    // A. Collecte Tasmota avec détection d'appareil mort
-    if (!empty($data['devices'])) {
+
+    if (!empty($data['devices']) && is_array($data['devices'])) {
         foreach ($data['devices'] as $dev) {
             $parts = explode('|', $dev);
             if (count($parts) < 4) continue;
@@ -107,12 +121,23 @@ foreach ($rooms as $name => $data) {
                 $p = 0;
                 $is_offline = true;
 
-                if ($dev_data !== null && is_array($dev_data)) {
-                    $p = $dev_data['power'] ?? 0;
-                    $last_seen = $dev_data['last_seen'] ?? 0;
+                if ($dev_data !== null && abs(time() - ($dev_data['last_seen'] ?? 0)) < 600) {
+                    $is_offline = false;
                     
-                    if (abs(time() - $last_seen) < 600) {
-                        $is_offline = false;
+                    if (isset($dev_data['channel_states']) && isset($dev_data['channels'][$relay])) {
+                        $p = $dev_data['channels'][$relay];
+                    } else {
+                        $p = $dev_data['power'] ?? 0.0;
+                    }
+
+                    // 💡 SOUSTRACTION 1 : Le PC Famille est déduit du Netzwerkschrank
+                    if (strpos(strtolower($label), 'netzwerkschrank') !== false) {
+                        $p = max(0, $p - $p_pc_famille);
+                    }
+
+                    // 💡 SOUSTRACTION 2 : Le Bildschirm Raf est déduit du PC Raf
+                    if (strpos(strtolower($label), 'pc raf') !== false) {
+                        $p = max(0, $p - $p_bildschirm_raf);
                     }
                 }
 
@@ -121,10 +146,10 @@ foreach ($rooms as $name => $data) {
                     $sum_rooms_consumption += $p;
                 }
 
-                $icon = $parts[4] ?? $defaults[$type];
+                $icon = $parts[4] ?? ($defaults[$type] ?? '🔌');
+                
                 $display_label = $label;
-                // IP de ta machine à laver 
-                 if (array_key_exists($ip, $machine_badges)) {
+                if (array_key_exists($ip, $machine_badges)) {
                     $display_label .= $machine_badges[$ip];
                 }
                 if ($is_offline) {
@@ -132,64 +157,38 @@ foreach ($rooms as $name => $data) {
                 }
 
                 $dev_list[] = [
-                    'label' => $display_label, 
-                    'power' => $p, 
-                    'source' => 'tas', 
+                    'label' => $display_label,
+                    'power' => $p,
                     'icon' => $icon,
                     'offline' => $is_offline
                 ];
             }
         }
     }
-    
-    // B. Collecte DRS
-    if (!empty($data['drs_keys'])) {
-        foreach ($data['drs_keys'] as $drs_entry) {
-            $parts_drs = explode('|', $drs_entry);
-            if (count($parts_drs) < 2) continue;
-            list($key, $label) = $parts_drs;
-            $p = $drs_data[$key] ?? 0;
-            
-            $room_total += $p;
-            $sum_rooms_consumption += $p;
-            $icon = $parts_drs[2] ?? $defaults['drs']; 
-            
-            $dev_list[] = [
-                'label' => $label, 
-                'power' => $p, 
-                'source' => 'drs', 
-                'icon' => $icon, 
-                'offline' => false
-            ];
-        }
-    }
 
     if (empty($dev_list)) continue;
 
-    // Génération dynamique du HTML pour chaque pièce
-    $card_style = ($name == "Arbeitszimmer" && $drs_warning) ? "border: 2px solid var(--red); box-shadow: 0 0 15px rgba(231, 76, 60, 0.4);" : "";
-    
-    $rendered_cards_html .= '<div class="room-card" style="' . $card_style . '">';
+    $is_arbeitszimmer = ($name == "Arbeitszimmer");
+    $grid_span = $is_arbeitszimmer ? "grid-column: span 2;" : "";
+    $body_class = $is_arbeitszimmer ? "grid-2-columns" : "flex-column";
+
+    $rendered_cards_html .= '<div class="room-card" style="' . $grid_span . '">';
     $rendered_cards_html .= '  <div class="room-head">';
-    $rendered_cards_html .= '      <div class="room-title"><span>' . $data['icon'] . '</span> ' . strtoupper($name);
-    if ($name == "Arbeitszimmer" && $drs_warning) {
-        $rendered_cards_html .= ' <small style="color: var(--red); font-size: 0.5rem; margin-left: 10px;">⚠️ RPIA Offline</small>';
-    }
-    $rendered_cards_html .= '      </div>';
+    $rendered_cards_html .= '      <div class="room-title"><span>' . ($data['icon'] ?? '🏠') . '</span> ' . strtoupper($name) . '</div>';
     $rendered_cards_html .= '      <span class="badge badge-blue">⚡ ' . round($room_total) . ' W</span>';
     $rendered_cards_html .= '  </div>';
-    $rendered_cards_html .= '  <div class="room-body" style="padding: 10px 20px;">';
-    
+    $rendered_cards_html .= '  <div class="room-body ' . $body_class . '">';
+
     foreach ($dev_list as $d) {
-        $color_style = (($d['source'] == 'drs' && $drs_warning) || ($d['offline'] ?? false)) ? 'color: var(--red);' : '';
-        $power_display = ($d['offline'] ?? false) ? '---' : round($d['power']);
-        
-        $rendered_cards_html .= '      <div class="dev-row" style="display: flex; justify-content: space-between; padding: 5px 0;">';
-        $rendered_cards_html .= '          <span class="dev-name" style="font-size: 0.85rem; color: #ccc;"><span style="margin-right: 8px;">' . $d['icon'] . '</span>' . $d['label'] . '</span>';
+        $color_style = ($d['offline']) ? 'color: var(--red);' : '';
+        $power_display = ($d['offline']) ? '---' : round($d['power']);
+
+        $rendered_cards_html .= '      <div class="dev-row">';
+        $rendered_cards_html .= '          <span class="dev-name"><span>' . $d['icon'] . '</span> ' . $d['label'] . '</span>';
         $rendered_cards_html .= '          <span style="font-weight: 900; color: #eee; ' . $color_style . '">' . $power_display . ' <small style="color:#444; font-size: 0.6rem;">W</small></span>';
         $rendered_cards_html .= '      </div>';
     }
-    
+
     $rendered_cards_html .= '  </div>';
     $rendered_cards_html .= '</div>';
 }
@@ -198,19 +197,16 @@ foreach ($rooms as $name => $data) {
 $gesamt_conso = $v_haus + $solar_watt;
 $abdeckung = ($gesamt_conso > 0) ? min(round(($sum_rooms_consumption / $gesamt_conso) * 100), 100) : 0;
 $autarkie = ($v_haus > 0) ? min(round(($solar_watt / $gesamt_conso) * 100), 100) : (($solar_watt > 0) ? 100 : 0);
-
-$netzbezug = max(0, $gesamt_conso - $solar_watt);
-$netzeinspeisung = max(0, $solar_watt - $gesamt_conso);
 ?>
 
 <div class="container">
 
-    
-    <div class="room-card" style="margin-bottom: 25px; border: 1px solid #ff980066;border-top: 3px solid #ff9800; padding: 20px; display: flex; flex-direction: column; gap: 15px;">
+    <div class="room-card" style="margin-bottom: 25px; border: 1px solid #ff980066; border-top: 3px solid #ff9800; padding: 20px; display: flex; flex-direction: column; gap: 15px;">
         <div class="room-title" style="justify-content: center; color: #ff9800;"><span>⚡</span> GESAMTVERBRAUCH</div>
-        <div style="font-size: 2.8rem; font-weight: 900; line-height: 1;align-items: center; text-align: center;">
-            <?= $gesamt_conso ?> <span style="font-size: 1rem; color: #444;">Watt</span>
+        <div style="font-size: 2.8rem; font-weight: 900; line-height: 1; align-items: center; text-align: center;">
+            <?= round($gesamt_conso) ?> <span style="font-size: 1rem; color: #444;">Watt</span>
         </div>
+        
         <div style="margin-bottom: 15px;">
             <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
                 <div style="font-size: 0.55rem; font-weight: 900; color: #555; text-transform: uppercase;">Abdeckung (Summe Räume)</div>
@@ -232,22 +228,22 @@ $netzeinspeisung = max(0, $solar_watt - $gesamt_conso);
         </div>
     </div>
 
-    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-bottom: 30px;">
-        <div class="room-card" style="padding: 15px; text-align: center;border: 1px solid #ff980066;">
-            <div style="font-size: 0.5rem; font-weight: 900; color: #555;">VERTEILER HAUS</div>
-            <div style="font-size: 1.4rem; font-weight: 900; color: var(--accent);"><?= $v_haus ?> W</div>
+    <div class="sha-counters-grid">
+        <div class="room-card" style="padding: 15px; text-align: center; border: 1px solid #ff980066;">
+            <div style="font-size: 0.55rem; font-weight: 900; color: #555;">VERTEILER HAUS</div>
+            <div style="font-size: 1.4rem; font-weight: 900; color: var(--accent);"><?= round($v_haus) ?> W</div>
         </div>
-        <div class="room-card" style="padding: 15px; text-align: center;border: 1px solid #ff980066;">
-            <div style="font-size: 0.5rem; font-weight: 900; color: #555;">SOLAR</div>
-            <div style="font-size: 1.4rem; font-weight: 900; color: var(--solar);"><?= $solar_watt ?> W</div>
+        <div class="room-card" style="padding: 15px; text-align: center; border: 1px solid #ff980066;">
+            <div style="font-size: 0.55rem; font-weight: 900; color: #555;">SOLAR</div>
+            <div style="font-size: 1.4rem; font-weight: 900; color: var(--solar);"><?= round($solar_watt) ?> W</div>
         </div>
-        <div class="room-card" style="padding: 15px; text-align: center;border: 1px solid #ff980066;">
-            <div style="font-size: 0.5rem; font-weight: 900; color: #555;">VERTEILER BBH</div>
-            <div style="font-size: 1.4rem; font-weight: 900; color: var(--green);"><?= $v_bbh ?> W</div>
+        <div class="room-card" style="padding: 15px; text-align: center; border: 1px solid #ff980066;">
+            <div style="font-size: 0.55rem; font-weight: 900; color: #555;">VERTEILER BBH</div>
+            <div style="font-size: 1.4rem; font-weight: 900; color: var(--green);"><?= round($v_bbh) ?> W</div>
         </div>
     </div>
 
-    <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(400px, 1fr)); gap: 20px;">
+    <div class="sha-main-grid">
         <?= $rendered_cards_html ?>
     </div>
 </div>
