@@ -661,3 +661,94 @@ Le Polling Centralisé (Requête de masse)Toutes les 5 minutes (300s), le script
 🛠️ 5. Maintenance & Commandes UtilesPour toute modification dans la structure de capture ou l'ajout de règles de parsing, l'ensemble des scripts s'administre via le service système global de la machine.Redémarrer l'orchestrateur de cache :Bashsystemctl restart sha-worker.service
 Vérifier le bon fonctionnement des scripts en temps réel :Bashjournalctl -u sha-worker.service -f
 Surveiller l'intégrité du fichier de cache en RAM :Bashcat /dev/shm/sha_live.json
+
+
+_____________________
+23.05.2026 (Afternoon)
+
+🛠️ RÉCAPITULATIF : Activation du WOL & Shutdown sur Windows 11Pour chaque nouveau PC à intégrer dans l'infrastructure S.H.A., applique cette procédure stricte :1. Configuration du BIOS / UEFIChercher l'option ErP Ready (ou Deep Sleep) et la passer sur Disabled (sinon la carte réseau est totalement privée de courant à l'extinction).Activer l'option Wake-On-LAN, Power On By PCI-E ou Resume by PME.2. Configuration de Windows 11Ouvre un terminal PowerShell en mode Administrateur et exécute ce bloc de commandes pour configurer le réseau, le registre et le pare-feu restrictif (autorisant uniquement l'IP du serveur 192.168.0.10) :PowerShell# 1. Force le réseau en mode Privé (indispensable pour ouvrir les ports)
+Get-NetConnectionProfile | Set-NetConnectionProfile -NetworkCategory Private
+
+# 2. Active et démarre le service Registre à Distance utilisé pour l'extinction RPC
+Set-Service RemoteRegistry -StartupType Automatic
+Start-Service RemoteRegistry
+
+# 3. Crée la règle de Pare-feu exclusive et ultra-sécurisée pour le serveur S.H.A.
+New-NetFirewallRule -DisplayName "SHA RPC Shutdown" -Direction Inbound -LocalPort 445 -Protocol TCP -Action Allow -Profile Private -RemoteAddress 192.168.0.10
+
+# 4. Autorise les jetons d'administration distants locaux pour valider l'extinction
+reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" /v "LocalAccountTokenFilterPolicy" /t REG_DWORD /d 1 /f
+3. Gestionnaire de périphériques & Options d'alimentationDésactiver le démarrage rapide : Dans le Panneau de configuration $\rightarrow$ Options d'alimentation $\rightarrow$ Choisir l'action des boutons d'alimentation, clique sur modifier les paramètres indisponibles et décoche la case Activer le démarrage rapide (Schnellstart).Propriétés de la carte réseau :Onglet Gestion de l'alimentation : Cocher Autoriser ce périphérique à réveiller l'ordinateur et Autoriser uniquement un paquet magique.Onglet Avancé : Activer Réveil sur paquet magique (Wake on Magic Packet), Délestage ARP (ARP Offload) et Shutdown Wake-On-LAN (Aktivierung nach Herunterfahren).📝 DOCUMENTATION TECHNIQUE : MODULE COCKPIT PRISES, LUMIÈRES & PC (S.H.A. 2026)🗺️ 1. Architecture des Fichiers et DépendancesL'architecture sépare de manière étanche la capture asynchrone (Python), le stockage volatile (RAM), la sécurité (fichiers .conf), le routage d'action (PHP Core) et l'interface utilisateur.Plaintext/var/www/html/sha/
+├── assets/css/style.css         # Conteneurs de grilles (.grid-2-columns, .flex-column, responsive)
+├── core/
+│   ├── functions.php            # Émetteur WOL PHP, exécuteur RPC Shutdown, lecteur RAM et parseur app.conf
+│   └── functions.js             # Boucle d'Auto-Refresh DOM 10s, Délégation d'événements, Deutsche Sicherheit
+├── data/sha_live.json           # Symlink pointant vers le cache volatile de la RAM (/dev/shm/sha_live.json)
+├── config/
+│   ├── app.conf                 # Identifiants chiffrés / sécurisés [MQTT] et [Windows] (User / Pass)
+│   └── home_structure.conf      # Registre d'arborescence des pièces unifiant les tableaux devices[] et pcs[]
+├── scripts/
+│   └── sha_cache_builder.py     # Démon d'arrière-plan (Orchestrateur MQTT Multi-Relais + Ping asynchrone 15s)
+└── steckdose.php                # Rendu HTML pur alimenté par le cache RAM (Temps d'exécution < 5ms)
+📡 2. Pipeline de Données de Fond (sha_cache_builder.py)Géré par le service global sha-worker.service, ce script centralise toute la capture de données pour soulager le serveur web Apache et éliminer la latence à l'affichage.A. Analyse Multi-Relais Tasmota (Nouveauté)Le script intercepte les messages STATE et parcourt dynamiquement la racine du JSON à la recherche de clés POWER1, POWER2, etc. Il convertit automatiquement les statuts binaires textuels en valeurs flottantes (1.0 / 0.0) insérées dans l’objet channels du périphérique pour une compatibilité PHP transparente. Toutes les 5 minutes, il pousse un STATUS 5 global pour cartographier les adresses IP à la volée.B. Balayage Ping Asynchrone des PC (Nouveauté)Toutes les 15 secondes, le démon s'interrompt brièvement pour analyser home_structure.conf. Il extrait toutes les adresses IP déclarées sous l'identifiant pc| et exécute un ping d’arrière-plan ultra-rapide (1 paquet, timeout de 500ms). L’état obtenu (ON ou OFF) est immédiatement injecté de manière atomique dans le fichier /dev/shm/sha_live.json.🧠 3. Routage Backend & Sécurité (core/functions.php)Le fichier core/functions.php centralise la logique métier lourde et l'accès sécurisé aux configurations privées.A. Injection d’Authentification (config/app.conf)Le fichier charge à la volée la section [Windows] pour récupérer l'utilisateur et le mot de passe administrateur local sans jamais les exposer en clair dans l'arborescence du code public :Ini, TOML[Windows]
+user = "NomAdministrateur"
+password = "MotDePasseSecurise"
+B. Émetteur Wake-On-LAN NatifLors d'une requête POST avec l'action ON sur un périphérique de type pc, le noyau extrait l'adresse MAC, nettoie les séparateurs superflus, assemble le Magic Packet binaire (6 octets 0xFF + 16 répétitions de la MAC address) et l'éjecte en UDP Broadcast sur le port 9.C. Shutdown RPC Forcé (Graceful Extinction)Lors d’une action OFF sur un PC, PHP exécute la commande réseau Samba unifiée :Bashnet rpc shutdown -I [IP_PC] -U [USER%PASSWORD] -t 0 -f
+L'argument -t 0 garantit une extinction immédiate, tandis que l'argument -f (Force) ordonne au noyau Windows de court-circuiter toutes les applications ouvertes et de déconnecter instantanément toutes les sessions (masquées, actives ou verrouillées par un autre utilisateur) pour éteindre proprement la machine.⚡ 4. Interface & Noyau Frontend (steckdose.php + functions.js)A. Rendu Visuel Fluide et Ergonomie PCLa page steckdose.php fusionne à la volée les lignes devices[] et pcs[] de chaque pièce. Pour garantir une expérience fluide :Ergonomie PC : Contrairement aux prises de puissance, les PC sont exclus de la routine d'inactivité du cache. Ils ne passent jamais en statut Offline gris, maintenant le bouton d'action opérationnel en permanence.Mise en page adaptative : La pièce Arbeitszimmer s’étale élégamment sur deux colonnes équilibrées (.grid-2-columns) sur les écrans de PC/Tablettes et bascule sur une colonne sur smartphone.B. Moteur JS CentraliséL'interactivité repose entièrement sur le fichier core/functions.js :Auto-Refresh DOM : Toutes les 10 secondes, le script aspire le contenu mis à jour depuis la RAM de manière invisible et remplace les nœuds HTML (Pastilles 🟢 ON / ⚫ OFF, compteurs de badges) sans rafraîchir la page ni couper l'expérience utilisateur.Double Sécurité Allemande (Deutsche Sicherheit) : Tout clic sur un bouton menant à une extinction (nextAction === 'OFF') intercepte l'événement et affiche une boîte de dialogue de sécurité stricte :⚠️ S.H.A. Sicherheit: Sind Sie sicher, dass Sie das Gerät "[Nom du périphérique]" AUSSCHALTEN möchten?🛠️ 5. Commandes de Maintenance SystèmeToute modification au sein de l'écosystème SHA (fichiers de structure, de configuration, ou règles de parsing Python) s'administre via les commandes système suivantes :Appliquer les modifications (Redémarrer l'orchestrateur) :Bashsystemctl restart sha-worker.service
+Surveiller le flux de débogage du worker en temps réel :Bashjournalctl -u sha-worker.service -f
+Vérifier l'état actuel du cache brut en RAM :Bashcat /dev/shm/sha_live.json
+
+## 👥 6. Provisionnement d'un nouveau PC Windows 11 (Compte Admin Local)
+
+Pour que le serveur S.H.A. (`192.168.0.10`) soit autorisé à pousser l'ordre d'extinction, un compte miroir avec des droits d'administration élevés doit exister localement sur la machine cible. Ce compte doit correspondre exactement aux valeurs injectées dans le fichier `config/app.conf`.
+
+### A. Création rapide via Invite de commandes (CMD en mode Admin)
+Sur la machine Windows 11 à intégrer, ouvrir un terminal `cmd` avec les privilèges d'administrateur et exécuter les commandes suivantes :
+
+```cmd
+:: 1. Création de l'utilisateur local avec son mot de passe dédié
+net user "TonNomAdministrateur" "TonMotDePasseSecurise" /add
+
+:: 2. Élévation des privilèges au groupe des Administrateurs
+:: ⚠️ Règle de langue obligatoire (choisir la commande selon l'OS) :
+:: Pour un Windows Allemand (Standard S.H.A.) :
+net localgroup Administratoren "TonNomAdministrateur" /add
+
+:: Pour un Windows Français :
+net localgroup Administrateurs "TonNomAdministrateur" /add
+
+:: Pour un Windows Anglais :
+net localgroup Administrators "TonNomAdministrateur" /add
+
+
+## 🔒 7. Autorisation Exclusive du Ping Réseau (ICMPv4)
+
+Par défaut, le pare-feu de Windows 11 bloque les requêtes d'écho (Ping). Pour que le démon d'arrière-plan `sha_cache_builder.py` puisse cartographier l'état live (`ON`/`OFF`) de la machine toutes les 15 secondes sans compromettre la sécurité globale du PC, une règle d'isolation ICMP doit être injectée.
+
+### A. Injection de la règle restrictive (PowerShell en mode Admin)
+Exécuter la commande suivante sur le PC Windows pour ouvrir le flux ICMP **uniquement** à l'adresse IP du serveur S.H.A. (`192.168.0.10`) :
+
+```powershell
+New-NetFirewallRule -DisplayName "SHA ICMP Ping" -Direction Inbound -Protocol ICMPv4 -IcmpType 8 -Action Allow -Profile Private -RemoteAddress 192.168.0.10
+___________
+Activer le ping:
+
+Méthode 2 : Via l'interface graphiqueSi vous préférez passer par les menus de Windows :1.Ouvrir le pare-feu avancé:Appuyez sur le raccourci Win + R, tapez wf.msc et validez avec Entrée. Cela ouvre la console du Pare-feu Windows Defender avec fonctions avancées de sécurité.2.Accéder aux règles de trafic entrant:Dans la colonne de gauche, cliquez sur Règles de trafic entrant (Inbound Rules).3.Localiser la règle ICMP:Faites défiler la liste centrale jusqu'à la section Partage de fichiers et d'imprimantes. Recherchez la règle suivante :Partage de fichiers et d'imprimantes (Demande d'écho - ICMPv4-Entrée)(Note : Si votre Windows est configuré en anglais, elle s'intitule File and Printer Sharing (Echo Request - ICMPv4-In)).4.Activer la règle:Faites un clic droit sur la règle qui correspond à votre profil réseau actuel (généralement le profil Privé) et sélectionnez Activer la règle. L'icône à gauche de la ligne doit devenir verte.
+
+___
+
+Si ca ne marche pas
+
+# 1. Passe le réseau en Privé
+Get-NetConnectionProfile | Set-NetConnectionProfile -NetworkCategory Private
+
+# 2. Active le service de registre distant
+Set-Service RemoteRegistry -StartupType Automatic
+Start-Service RemoteRegistry
+
+# 3. Ouvre le pare-feu exclusivement pour le serveur SHA
+New-NetFirewallRule -DisplayName "SHA RPC Shutdown" -Direction Inbound -LocalPort 445 -Protocol TCP -Action Allow -Profile Private -RemoteAddress 192.168.0.10
+New-NetFirewallRule -DisplayName "SHA ICMP Ping" -Direction Inbound -Protocol ICMPv4 -IcmpType 8 -Action Allow -Profile Private -RemoteAddress 192.168.0.10
+
+# 4. Autorise les jetons d'administration distants
+reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" /v "LocalAccountTokenFilterPolicy" /t REG_DWORD /d 1 /f

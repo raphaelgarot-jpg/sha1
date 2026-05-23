@@ -131,20 +131,19 @@ function startAutoRefresh() {
 }
 
 /**
- * Initialise le contrôle des boutons via délégation d'événement (Résistant à l'Auto-Refresh & PWA)
+ * Initialise le contrôle des boutons via délégation d'événement (Compatible PC, Sockets & Lights)
  */
 function initDeviceToggles() {
-    // 💡 Délégation d'événement : On écoute le document entier
     document.addEventListener('click', function(event) {
-        // On vérifie si l'élément cliqué (ou son parent proche) est un toggle-btn
         var button = event.target.closest('.toggle-btn');
-        if (!button) return; // Si ce n'est pas un bouton de prise, on ignore
+        if (!button) return;
 
         var btn = button;
         var ip = btn.getAttribute('data-ip');
         var relay = btn.getAttribute('data-relay');
         var currentState = btn.getAttribute('data-state');
         var label = btn.getAttribute('data-label');
+        var type = btn.getAttribute('data-type') || 'socket'; // 💡 Récupération du type de périphérique
 
         var nextAction = (currentState === 'ON') ? 'OFF' : 'ON';
         var devRow = btn.closest('.dev-row');
@@ -162,6 +161,7 @@ function initDeviceToggles() {
         formData.append('action', nextAction);
         formData.append('ip', ip);
         formData.append('relay', relay);
+        formData.append('type', type); // 💡 Envoi du type de périphérique à functions.php
 
         fetch('steckdose.php', {
             method: 'POST',
@@ -177,8 +177,7 @@ function initDeviceToggles() {
 
             try {
                 var cleanJson = text.substring(text.indexOf('{'), text.lastIndexOf('}') + 1);
-                // 💡 CORRECTION : "JSON" en majuscules
-                var data = JSON.parse(cleanJson); 
+                var data = JSON.parse(cleanJson);
             } catch(e) {
                 var data = { success: true, new_state: nextAction };
             }
@@ -192,7 +191,6 @@ function initDeviceToggles() {
         .catch(error => {
             btn.style.opacity = "1";
             btn.disabled = false;
-            // Optimistische UI
             updateDeviceUI(btn, devRow, nextAction);
         });
     });

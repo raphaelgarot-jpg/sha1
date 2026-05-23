@@ -1,22 +1,23 @@
 /* =====================================================================
    SHA 2026 - FEUILLE DE STYLE COMPLÈTE
-   Expert Audit Fix - Version 1.9 (Focus Menu)
+   Expert Audit Fix - Version 1.10 (Focus Strom + iOS Responsive)
    ===================================================================== */
 
 :root {
     /* Couleurs de base */
+    background: #000;
     --bg: #000;
     --card: #0c0c0c;
     --border: #222; /* Bordures plus subtiles */
     --header-bg: #111;
-    
+
     /* Couleurs d'accentuation */
     --accent: #3498db;
     --solar: #f1c40f;
     --green: #2ecc71;
     --red: #e74c3c;
     --orange: #ff9800; /* Ta couleur préférée pour le menu */
-    
+
     /* Typographie & Coins */
     --font-main: 'Segoe UI', system-ui, sans-serif;
     --radius-lg: 20px;
@@ -26,12 +27,12 @@
 
 /* --- RÉINITIALISATION & BASE --- */
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; outline: none; }
-body { 
-    background: var(--bg); 
-    margin: 0; 
-    font-family: var(--font-main); 
-    color: #fff; 
-    overflow-x: hidden; 
+body {
+    background: var(--bg);
+    margin: 0;
+    font-family: var(--font-main);
+    color: #fff;
+    overflow-x: hidden;
     display: flex;
     flex-direction: column;
     min-height: 100vh;
@@ -39,15 +40,13 @@ body {
 
 .container { padding: 20px; max-width: 1400px; margin: 0 auto; width: 100%; flex: 1; }
 
-/* --- HEADER (On garde la structure actuelle) --- */
+/* --- HEADER --- */
 .sha-header {
     display: flex; align-items: center; justify-content: space-between;
     background: var(--header-bg); padding: 12px 20px;
     border-bottom: 1px solid #1a1a1a; position: sticky; top: 0; z-index: 1000;
 }
-.sha-header-spacer {
-    width: 35px;
-}
+.sha-header-spacer { width: 35px; }
 .header-title {
     color: var(--orange); font-weight: 900; font-size: 1.1rem;
     letter-spacing: 2px; flex-grow: 1; text-align: center; text-transform: uppercase;
@@ -55,100 +54,35 @@ body {
 .hamburger-btn { cursor: pointer; display: flex; flex-direction: column; gap: 5px; padding: 5px; z-index: 10001; }
 .hamburger-btn span { display: block; width: 25px; height: 2px; background: #fff; border-radius: 2px; }
 
-/* =====================================================================
-   ✅ NOUVELLE SIDEBAR (CORRECTION ESTHÉTIQUE SELON IMAGE)
-   ===================================================================== */
+/* --- SIDEBAR --- */
 .sidebar {
-    position: fixed; 
-    top: 0; 
-    right: -280px; /* Caché à droite */
-    width: 280px; 
-    height: 100%;
-    /* Fond sombre légèrement transparent pour l'élégance */
-    background: rgba(18, 18, 18, 0.98); 
-    z-index: 9999; 
-    
-    /* Transition fluide */
+    position: fixed; top: 0; right: -280px; width: 280px; height: 100%;
+    background: rgba(18, 18, 18, 0.98); z-index: 9999;
     transition: right 0.4s cubic-bezier(0.165, 0.84, 0.44, 1);
-    
-    /* Coins arrondis UNIQUEMENT à gauche, comme sur l'image */
     border-radius: var(--radius-lg) 0 0 var(--radius-lg);
-    
-    /* Bordure subtile et ombre portée pour la profondeur */
-    border-left: 1px solid var(--border);
-    box-shadow: -10px 0 25px rgba(0,0,0,0.6);
-    
-    padding-top: 10px;
+    border-left: 1px solid var(--border); box-shadow: -10px 0 25px rgba(0,0,0,0.6); padding-top: 10px;
 }
-.sidebar.active { right: 0; } /* État ouvert */
-
-/* Étiquette du menu (S.H.A. MENU + X) */
-.sidebar .menu-label { 
-    color: #fff; 
-    padding: 25px 30px; 
-    font-size: 0.95rem; 
-    font-weight: 900; 
-    display: flex; 
-    justify-content: space-between; 
-    align-items: center;
-    letter-spacing: 2px; 
-    text-transform: uppercase;
+.sidebar.active { right: 0; }
+.sidebar .menu-label {
+    color: #fff; padding: 25px 30px; font-size: 0.95rem; font-weight: 900;
+    display: flex; justify-content: space-between; align-items: center;
+    letter-spacing: 2px; text-transform: uppercase;
 }
-
-/* Liste des liens */
 .sidebar ul { list-style: none; padding: 10px 0 0; margin: 0; }
-
-.sidebar ul li a { 
-    display: flex; 
-    align-items: center; 
-    gap: 18px; 
-    padding: 18px 30px; 
-    color: #aaa; /* Couleur de base discrète */
-    text-decoration: none; 
-    font-size: 0.85rem; 
-    font-weight: 700;
-    text-transform: uppercase; 
-    transition: all 0.2s ease;
-    border-bottom: 1px solid #0f0f0f; /* Séparateur très sombre */
+.sidebar ul li a {
+    display: flex; align-items: center; gap: 18px; padding: 18px 30px; color: #aaa;
+    text-decoration: none; font-size: 0.85rem; font-weight: 700; text-transform: uppercase;
+    transition: all 0.2s ease; border-bottom: 1px solid #0f0f0f;
 }
-
-/* Style des icônes (Discrètes par défaut) */
-.sidebar ul li a span { 
-    font-size: 1.3rem; 
-    filter: grayscale(1) opacity(0.7); /* Effet "vieux gris" comme sur l'image */
-    transition: 0.2s;
-}
-
-/* --- EFFET HOVER (SURVOL) --- */
-.sidebar ul li a:hover { 
-    color: #fff; /* Texte blanc au survol */
-    background: rgba(255,255,255,0.03); /* Léger fond clair */
-    padding-left: 35px; /* Petit décalage élégant */
-}
-
-/* Réactivation des icônes au survol */
-.sidebar ul li a:hover span { 
-    filter: grayscale(0) opacity(1); /* L'icône reprend ses couleurs */
-    transform: scale(1.1); /* Léger grossissement */
-}
-
-/* Séparateur spécial pour la fin (Notifications) */
+.sidebar ul li a span { font-size: 1.3rem; filter: grayscale(1) opacity(0.7); transition: 0.2s; }
+.sidebar ul li a:hover { color: #fff; background: rgba(255,255,255,0.03); padding-left: 35px; }
+.sidebar ul li a:hover span { filter: grayscale(0) opacity(1); transform: scale(1.1); }
 .sidebar .separator { height: 1px; background: var(--border); margin: 15px 30px; opacity: 0.5; }
 
-/* Overlay de fond (Background Blur) */
-.overlay { 
-    display: none; 
-    position: fixed; 
-    inset: 0; 
-    background: rgba(0,0,0,0.8); 
-    z-index: 9998; 
-    backdrop-filter: blur(5px); /* Effet flou moderne */
+.overlay {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 9998; backdrop-filter: blur(5px);
 }
 .overlay.active { display: block; }
-
-/* =====================================================================
-   Reste du style (Grid, Cards, etc.)
-   ===================================================================== */
 
 /* --- BANDEAU TUILES --- */
 .nav-tiles { display: grid; grid-template-columns: repeat(7, 1fr); gap: 12px; padding: 10px 0 20px; }
@@ -161,9 +95,7 @@ body {
 .tile-icon { font-size: 1.6rem; margin-bottom: 4px; }
 .tile-label { font-size: 0.55rem; font-weight: 900; text-transform: uppercase; color: #eee; letter-spacing: 1px; }
 
-@media (min-width: 1001px) {
-    .tile-icon { font-size: 2.5rem; }
-}
+@media (min-width: 1001px) { .tile-icon { font-size: 2.5rem; } }
 
 /* --- GRILLE & CARTES PIÈCES --- */
 .room-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 20px; }
@@ -174,253 +106,122 @@ body {
 .room-title { font-weight: 900; font-size: 1.0rem; text-transform: uppercase; letter-spacing: 1px; display: flex; align-items: center; gap: 15px; }
 .room-title span { font-size: 1.4rem; }
 
-/* --- STECKDOSEN & HEIZUNG (On garde les styles existants) --- */
-.dev-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #0f0f0f; }
-.dev-led { width: 8px; height: 8px; border-radius: 50%; background: #222; }
-.dev-led.on { background: var(--green); box-shadow: 0 0 8px var(--green); }
-.btn-sw { border: none; padding: 8px 14px; border-radius: 6px; font-weight: 900; font-size: 0.7rem; cursor: pointer; color: #fff; min-width: 60px; text-decoration: none; display: inline-block; }
-.btn-on { background: #1b5e20; border-bottom: 2px solid #0d3d10; }
-.btn-off { background: #b71c1c; border-bottom: 2px solid #7f0000; }
+/* --- STECKDOSEN & LIGHTS --- */
+.dev-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; border-bottom: 1px solid #22222244; transition: all 0.3s ease; }
+.dev-row.offline { opacity: 0.4; border-left: 3px solid transparent; }
+.dev-row.state-on { border-left: 3px solid #27ae60; background: rgba(39, 174, 96, 0.02); }
+.dev-row.state-off { border-left: 3px solid transparent; }
+.dev-name { font-size: 0.85rem; color: #cccccc; display: flex; align-items: center; gap: 8px; }
+
+.status-text { font-size: 0.7rem; margin-left: 4px; }
+.status-text.on { color: #27ae60; font-weight: bold; }
+.status-text.off { color: #777777; font-weight: normal; }
+.status-text.offline { color: #e74c3c; font-weight: normal; }
+
+.toggle-btn { color: #ffffff; border: none; padding: 5px 16px; font-size: 0.75rem; font-weight: 900; border-radius: 6px; cursor: pointer; min-width: 65px; transition: all 0.2s ease; }
+.toggle-btn.btn-on { background: #d63031; }
+.toggle-btn.btn-off { background: #27ae60; }
+
+.badge { font-size: 0.75rem; padding: 4px 10px; border-radius: 20px; font-weight: bold; }
+.badge-blue { background: #2980b922; color: #3498db; border: 1px solid #3498db44; }
+
+.grid-2-columns { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0 40px; }
+.flex-column { display: flex; flex-direction: column; gap: 10px; }
 
 /* --- FOOTER --- */
 .sha-footer { background: #080808; border-top: 1px solid #222; padding: 25px 0; color: #444; font-size: 0.7rem; }
 .footer-container { max-width: 1200px; margin: 0 auto; padding: 0 20px; display: flex; justify-content: space-between; align-items: center; }
 
-/* --- RESPONSIVE --- */
+/* --- RESPONSIVE DE BASE --- */
 @media (max-width: 1000px) { .nav-tiles { grid-template-columns: repeat(4, 1fr); } .room-card.wide { grid-column: span 1; } }
 @media (max-width: 600px) { .nav-tiles { grid-template-columns: repeat(3, 1fr); } .header-title { font-size: 0.9rem; } .sidebar { width: 100%; right: -100%; border-radius: 0; } .sidebar.active { right: 0; } }
 
-/* SHA 2026 - Styles Volets */
-.shutter-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-    gap: 25px;
-    padding: 10px;
-}
-
-.shutter-card {
-    background: #111;
-    border-radius: 20px;
-    padding: 25px;
-    border: 1px solid #222;
-    transition: all 0.3s ease;
-}
-
-.central-card {
-    border: 1px solid #ff980066;
-    box-shadow: 0 0 15px rgba(255, 152, 0, 0.1);
-    max-width: 450px;
-    margin: 0 auto 40px auto;
-}
-
-.shutter-header {
-    display: flex;
-    align-items: center;
-    gap: 15px;
-    margin-bottom: 20px;
-}
-
-.roll-icon {
-    width: 45px;
-    height: 45px;
-    background: url('assets/img/rollBW2.png') no-repeat center;
-    background-size: contain;
-    filter: brightness(1.2);
-}
-
+/* --- VOLETS --- */
+.shutter-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 25px; padding: 10px; }
+.shutter-card { background: #111; border-radius: 20px; padding: 25px; border: 1px solid #222; transition: all 0.3s ease; }
+.central-card { border: 1px solid #ff980066; box-shadow: 0 0 15px rgba(255, 152, 0, 0.1); max-width: 450px; margin: 0 auto 40px auto; }
+.shutter-header { display: flex; align-items: center; gap: 15px; margin-bottom: 20px; }
+.roll-icon { width: 45px; height: 45px; background: url('assets/img/rollBW2.png') no-repeat center; background-size: contain; filter: brightness(1.2); }
 .shutter-name { font-weight: 900; font-size: 1rem; color: #fff; text-transform: uppercase; }
 .shutter-sub { color: #666; font-size: 0.6rem; font-weight: bold; text-transform: uppercase; }
-
 .control-row { display: flex; gap: 12px; width: 100%; }
-
-.btn-roll {
-    flex: 1; border: none; padding: 16px; border-radius: 12px;
-    cursor: pointer; display: flex; align-items: center; justify-content: center;
-    gap: 10px; font-weight: 900; font-size: 0.85rem; text-transform: uppercase;
-    transition: 0.2s; color: #fff;
-}
-
+.btn-roll { flex: 1; border: none; padding: 12px 20px; border-radius: 10px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 900; font-size: 0.8rem; text-transform: uppercase; transition: 0.2s; color: #fff; min-width: 100px; }
 .btn-up { background: #1b5e20; border-bottom: 4px solid #0d3d10; }
 .btn-down { background: #0d47a1; border-bottom: 4px solid #082d66; }
-
 .btn-roll:active { transform: translateY(2px); border-bottom-width: 0; margin-bottom: 4px; }
-.btn-roll.loading { opacity: 0.3; pointer-events: none; filter: grayscale(1); }
+.btn-roll.loading { opacity: 0.4; pointer-events: none; filter: grayscale(1); }
+.shutter-row { display: flex; align-items: center; justify-content: space-between; padding: 15px 20px; border-bottom: 1px solid #1a1a1a; gap: 15px; }
+.shutter-row:last-child { border-bottom: none; }
+.shutter-label { font-weight: 900; font-size: 0.85rem; color: #ccc; flex-shrink: 0; }
+.shutter-controls { display: flex; gap: 10px; flex-grow: 1; max-width: 250px; }
 
-.icon-ascii { font-size: 1.1rem; }
-
-.btn-roll {
-        flex: 1; border: none; padding: 12px 20px; border-radius: 10px;
-        cursor: pointer; display: flex; align-items: center; justify-content: center;
-        gap: 8px; font-weight: 900; font-size: 0.8rem; text-transform: uppercase;
-        transition: 0.2s; color: #fff; min-width: 100px;
-    }
-    .btn-up { background: #1b5e20; border-bottom: 4px solid #0d3d10; }
-    .btn-down { background: #0d47a1; border-bottom: 4px solid #082d66; }
-    .btn-roll:active { transform: translateY(2px); border-bottom-width: 0; margin-bottom: 4px; }
-    .btn-roll.loading { opacity: 0.4; pointer-events: none; filter: grayscale(1); }
-
-    .loading { opacity: 0.5; pointer-events: none; }
-
-    /* --- ROLLADEN MOBILE RESPONSIVE --- */
-
-.shutter-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 15px 20px;
-    border-bottom: 1px solid #1a1a1a;
-    gap: 15px;
-}
-
-.shutter-row:last-child {
-    border-bottom: none;
-}
-
-.shutter-label {
-    font-weight: 900;
-    font-size: 0.85rem;
-    color: #ccc;
-    flex-shrink: 0;
-}
-
-.shutter-controls {
-    display: flex;
-    gap: 10px;
-    flex-grow: 1;
-    max-width: 250px; /* Taille fixe sur PC */
-}
-
-/* --- ADAPTATION MOBILE --- */
 @media (max-width: 600px) {
-    .shutter-row {
-        flex-direction: column; /* On empile sur mobile */
-        align-items: stretch;   /* Les boutons prennent toute la largeur */
-        gap: 10px;
-        padding: 15px;
-    }
-
-    .shutter-label {
-        text-align: center;
-        font-size: 0.8rem;
-    }
-
-    .shutter-controls {
-        max-width: none; /* On libère la contrainte de taille */
-        width: 100%;
-    }
-
-    .btn-roll {
-        padding: 15px 0; /* Boutons plus gros pour le doigt */
-        font-size: 0.85rem;
-    }
-
-    div[style*="grid-template-columns: repeat(3, 1fr)"] { grid-template-columns: 1fr !important; }
-    div[style*="grid-template-columns: repeat(auto-fill, minmax(400px, 1fr))"] { grid-template-columns: 1fr !important; }
-}
-.btn-sw.loading { opacity: 0.5; cursor: wait; filter: grayscale(1); transition: 0.2s; }
-/* --- S.H.A. COCKPIT : STECKDOSE & LIGHTS --- */
-.room-card {
-    background: #111111;
-    border-radius: 12px;
-    border: 1px solid #222222;
-    margin-bottom: 20px;
-    box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+    .shutter-row { flex-direction: column; align-items: stretch; gap: 10px; padding: 15px; }
+    .shutter-label { text-align: center; font-size: 0.8rem; }
+    .shutter-controls { max-width: none; width: 100%; }
+    .btn-roll { padding: 15px 0; font-size: 0.85rem; }
 }
 
-.room-head {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 15px 20px;
-    border-bottom: 1px solid #222222;
-}
-
-.room-title {
-    font-size: 1rem;
-    font-weight: 700;
-    color: #ffffff;
-    letter-spacing: 0.5px;
-}
-
-.dev-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 8px 10px;
-    border-bottom: 1px solid #22222244;
-    transition: all 0.3s ease;
-}
-
-.dev-row.offline {
-    opacity: 0.4;
-    border-left: 3px solid transparent;
-}
-
-.dev-row.state-on {
-    border-left: 3px solid #27ae60;
-    background: rgba(39, 174, 96, 0.02);
-}
-
-.dev-row.state-off {
-    border-left: 3px solid transparent;
-}
-
-.dev-name {
-    font-size: 0.85rem;
-    color: #cccccc;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.status-text {
-    font-size: 0.7rem;
-    margin-left: 4px;
-}
-
-.status-text.on { color: #27ae60; font-weight: bold; }
-.status-text.off { color: #777777; font-weight: normal; }
-.status-text.offline { color: #e74c3c; font-weight: normal; }
-
-.toggle-btn {
-    color: #ffffff;
-    border: none;
-    padding: 5px 16px;
-    font-size: 0.75rem;
-    font-weight: 900;
-    border-radius: 6px;
-    cursor: pointer;
-    min-width: 65px;
-    transition: all 0.2s ease;
-}
-
-.toggle-btn.btn-on { background: #d63031; } /* Prochaine action possible: OFF */
-.toggle-btn.btn-off { background: #27ae60; } /* Prochaine action possible: ON */
-
-.badge {
-    font-size: 0.75rem;
-    padding: 4px 10px;
-    border-radius: 20px;
-    font-weight: bold;
-}
-.badge-blue { background: #2980b922; color: #3498db; border: 1px solid #3498db44; }
-/* --- CONFIGURATION DES COLONNES DE PIÈCES --- */
-.grid-2-columns {
+/* =====================================================================
+   🚀 NOUVEAU BLOC : SHA STROM GRID UTILITIES & INTEGRATION COCKPIT (V1.10)
+   ===================================================================== */
+.sha-counters-grid {
     display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 0 40px; /* Écart parfait entre la colonne de gauche et de droite */
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+    margin-bottom: 30px;
 }
 
-.flex-column {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
+.sha-main-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+    gap: 20px;
 }
 
-/* 📱 Sécurité Mobile : On repasse sur une seule colonne si l'écran est petit */
+/* 📱 SÉCURITÉ ABSOLUE RESPONSIVE IOS & SMARTPHONES */
 @media (max-width: 768px) {
+    .container {
+        padding: 10px !important;
+        margin: 0 auto !important;
+        width: 100% !important;
+        max-width: 100% !important;
+    }
+
+    /* Empilement des 3 gros compteurs du haut */
+    .sha-counters-grid {
+        grid-template-columns: 1fr !important;
+        gap: 12px !important;
+        margin-bottom: 20px !important;
+    }
+
+    /* Passage en colonne unique pour les cartes des pièces */
+    .sha-main-grid {
+        grid-template-columns: 1fr !important;
+        gap: 15px !important;
+    }
+
+    /* Neutralisation de la double largeur de l'Arbeitszimmer */
+    .room-card {
+        grid-column: span 1 !important;
+        width: 100% !important;
+    }
+    
+    .room-body.grid-2-columns {
+        grid-template-columns: 1fr !important;
+        gap: 0 !important;
+    }
+
     .grid-2-columns {
-        grid-template-columns: 1fr;
-        gap: 0;
+        grid-template-columns: 1fr !important;
+        gap: 0 !important;
+    }
+
+    /* 💡 CONSERVATION DU FLEX HORIZONTAL : Les lignes restent de vraies lignes ! */
+    .dev-row {
+        display: flex !important;
+        flex-direction: row !important;
+        justify-content: space-between !important;
+        align-items: center !important;
+        padding: 10px 10px !important; /* Réactivation du padding horizontal parfait */
     }
 }
