@@ -32,6 +32,11 @@ if (is_array($rooms)) {
             if (count($parts) < 4) continue;
             list($type, $ip, $relay_or_mac, $label) = $parts;
 
+            // 💡 SÉCURITÉ : On ignore immédiatement l'appareil s'il est marqué sans relais
+            if (isset($parts[5]) && trim($parts[5]) === 'no_relay') {
+                continue;
+            }
+
             if (in_array($type, ['socket', 'light', 'light_p', 'pc'])) {
                 $dev_data = $tas_cache[$ip] ?? null;
                 $is_offline = true; $current_state = "OFF";
@@ -43,7 +48,8 @@ if (is_array($rooms)) {
                     } else {
                         if (abs(time() - ($dev_data['last_seen'] ?? 0)) < 600) {
                             $is_offline = false;
-                            // 🧠 LECTURE DE L'ÉTAT REEL DU RELAIS (MÊME À 0 WATT)
+                            
+                            // Lecture de l'état réel du relais (même à 0 Watt)
                             if (isset($dev_data['channel_states'][$relay_or_mac])) {
                                 $current_state = strtoupper($dev_data['channel_states'][$relay_or_mac]);
                             } else {
@@ -67,7 +73,7 @@ if (is_array($rooms)) {
         $is_az = ($name == "Arbeitszimmer");
 
         $rendered_cards_html .= '<div class="room-card" style="' . ($is_az ? "grid-column: span 2;" : "") . '">';
-        $rendered_cards_html .= '  <div class="room-head"><div class="room-title"><span>' . ($data['icon'] ?? '🏠') . '</span> ' . strtoupper($name) . '</div><span class="badge badge-blue">🔌 ' . $room_active_count . ' Active(s)</span></div>';
+        $rendered_cards_html .= '  <div class="room-head"><div class="room-title"><span>' . ($data['icon'] ?? '🏠') . '</span> ' . strtoupper($name) . '</div><span class="badge badge-blue">🔌 ' . $room_active_count . ' aktiv</span></div>';
         $rendered_cards_html .= '  <div class="room-body ' . ($is_az ? "grid-2-columns" : "flex-column") . '" style="padding: 15px 20px;">';
 
         foreach ($dev_list as $d) {
