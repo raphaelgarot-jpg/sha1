@@ -225,6 +225,67 @@ function updateDeviceUI(btn, devRow, state) {
     }
 }
 
+/**
+ * S.H.A. 2026 - Fonctions JavaScript Core
+ */
+
+// Écouteur global pour intercepter le clic sur le bouton ON/OFF général
+document.addEventListener('click', function(e) {
+    if (e.target && e.target.classList.contains('toggle-btn')) {
+        const btn = e.target;
+        const type = btn.getAttribute('data-type');
+        const ip = btn.getAttribute('data-ip');
+        const currentState = btn.getAttribute('data-state'); // "ON" ou "OFF"
+
+        if (type === 'light') {
+            const row = btn.closest('.dev-row');
+            if (!row) return;
+            
+            const statusContainer = row.querySelector('.status-container');
+            if (!statusContainer) return;
+
+            // 🚀 ACTION INSTANTANÉE AU CLIC SUR "ON" : On injecte la tirette à 100%
+            if (currentState === 'OFF') {
+                if (!statusContainer.querySelector('.direct-dimmer-block')) {
+                    const dimmerHtml = `
+                        <span class="direct-dimmer-block" style="display: inline-flex; align-items: center; gap: 8px;">
+                            <input type="range" min="0" max="100" value="100" style="width: 90px; accent-color: #ff9800; margin: 0; cursor: pointer;" oninput="this.nextElementSibling.innerText = this.value + '%'" onchange="sendOBKDimmer('${ip}', 'dimmer', this.value)">
+                            <span style="font-size: 0.7rem; font-weight: bold; color: #ff9800; min-width: 32px; text-align: right;">100%</span>
+                        </span>
+                    `;
+                    statusContainer.insertAdjacentHTML('beforeend', dimmerHtml);
+                }
+            } 
+            // 🚀 ACTION INSTANTANÉE AU CLIC SUR "OFF" : On vire la tirette immédiatement
+            else if (currentState === 'ON') {
+                const dimmerBlock = statusContainer.querySelector('.direct-dimmer-block');
+                if (dimmerBlock) {
+                    dimmerBlock.remove();
+                }
+            }
+        }
+    }
+});
+
+/**
+ * Transmet la valeur de la réglette d'intensité en temps réel à handle_device_action()
+ */
+function sendOBKDimmer(ip, action, value) {
+    const formData = new FormData();
+    formData.append('ip', ip);
+    formData.append('action', action); // 'dimmer'
+    formData.append('value', value);
+
+    fetch('steckdose.php', { method: 'POST', body: formData })
+    .then(r => r.json())
+    .then(data => {
+        console.log('S.H.A. Gradation envoyée avec succès :', action, value + '%');
+    })
+    .catch(err => {
+        console.error('Erreur lors de l\'envoi de la gradation S.H.A. :', err);
+    });
+}
+
 // Amorçage des scripts globaux
 document.addEventListener("DOMContentLoaded", initDeviceToggles);
 document.addEventListener("DOMContentLoaded", startAutoRefresh);
