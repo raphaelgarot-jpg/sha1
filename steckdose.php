@@ -37,18 +37,26 @@ if (is_array($rooms)) {
                 continue;
             }
 
-            if (in_array($type, ['socket', 'light', 'light_p', 'pc'])) {
+            if (in_array($type, ['socket', 'light', 'light_p', 'pc', 'android'])) {
                 $dev_data = $tas_cache[$ip] ?? null;
                 $is_offline = true; $current_state = "OFF";
+                
+                // Détection de l'option Dimmable
+                $is_dimmable = false;
+                foreach($parts as $part) {
+                    if(trim(strtolower($part)) === 'dimmable') {
+                        $is_dimmable = true;
+                    }
+                }
 
                 if ($dev_data !== null) {
-                    if ($type === 'pc') {
+                    if ($type === 'pc' || $type === 'android') {
                         $is_offline = false;
                         $current_state = strtoupper($dev_data['state'] ?? "OFF");
                     } else {
                         if (abs(time() - ($dev_data['last_seen'] ?? 0)) < 600) {
                             $is_offline = false;
-                            
+
                             // Lecture de l'état réel du relais (même à 0 Watt)
                             if (isset($dev_data['channel_states'][$relay_or_mac])) {
                                 $current_state = strtoupper($dev_data['channel_states'][$relay_or_mac]);
@@ -62,9 +70,13 @@ if (is_array($rooms)) {
                 if (!$is_offline && $current_state === "ON") $room_active_count++;
                 $icon = $parts[4] ?? ($defaults[$type === 'light_p' ? 'light' : $type] ?? '💡');
 
+                // Lecture de la vraie valeur lue par le cache_builder.py
+                $current_dimmer = isset($dev_data['dimmer']) ? intval($dev_data['dimmer']) : 100;
+
                 $dev_list[] = [
                     'type' => $type, 'label' => $label, 'ip' => $ip, 'relay' => $relay_or_mac,
-                    'icon' => $icon, 'state' => $current_state, 'offline' => $is_offline
+                    'icon' => $icon, 'state' => $current_state, 'offline' => $is_offline,
+                    'dimmable' => $is_dimmable, 'dimmer' => $current_dimmer
                 ];
             }
         }
@@ -82,7 +94,19 @@ if (is_array($rooms)) {
 
             $rendered_cards_html .= '      <div class="' . $row_class . '">';
             $rendered_cards_html .= '          <span class="dev-name"><span>' . $d['icon'] . ' ' . $d['label'] . '</span>';
-            $rendered_cards_html .= '          <span class="status-text ' . ($d['offline'] ? 'offline' : ($is_on ? 'on' : 'off')) . '">' . ($d['offline'] ? '⚠️ Offline' : ($is_on ? '🟢 ON' : '⚫ OFF')) . '</span></span>';
+            
+            $rendered_cards_html .= '          <span class="status-container" style="display: inline-flex; align-items: center; gap: 15px;">';
+            $rendered_cards_html .= '              <span class="status-text ' . ($d['offline'] ? 'offline' : ($is_on ? 'on' : 'off')) . '">' . ($d['offline'] ? '⚠️ Offline' : ($is_on ? '🟢 ON' : '⚫ OFF')) . '</span>';
+            
+            // 🚀 INTEGRATION DIRECTE : La tirette s'affiche à côté du statut sans fioritures si l'appareil est ON
+            if ($is_on && $d['dimmable']) {
+                $rendered_cards_html .= '          <span class="direct-dimmer-block" style="display: inline-flex; align-items: center; gap: 8px;">';
+                $rendered_cards_html .= '              <input type="range" min="0" max="100" value="' . $d['dimmer'] . '" style="width: 90px; accent-color: #ff9800; margin: 0; cursor: pointer;" oninput="this.nextElementSibling.innerText = this.value + \'%\'" onchange="sendOBKDimmer(\'' . $d['ip'] . '\', \'dimmer\', this.value)">';
+                $rendered_cards_html .= '              <span style="font-size: 0.7rem; font-weight: bold; color: #ff9800; min-width: 32px; text-align: right;">' . $d['dimmer'] . '%</span>';
+                $rendered_cards_html .= '          </span>';
+            }
+            
+            $rendered_cards_html .= '          </span></span>';
             $rendered_cards_html .= '          <button class="toggle-btn ' . ($is_on ? 'btn-on' : 'btn-off') . '" data-type="' . $d['type'] . '" data-ip="' . $d['ip'] . '" data-relay="' . $d['relay'] . '" data-state="' . $d['state'] . '" data-label="' . htmlspecialchars($d['label'], ENT_QUOTES) . '">' . ($is_on ? 'OFF' : 'ON') . '</button>';
             $rendered_cards_html .= '      </div>';
         }
@@ -91,8 +115,24 @@ if (is_array($rooms)) {
 }
 ?>
 <div class="container">
-    <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(400px, 1fr)); gap: 20px; margin-top: 20px;">
+    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-bottom: 30px;">
+        <div class="room-card" style="padding: 15px; text-align: center; border: 1px solid #ff980066; border-top: 3px solid #ff9800; cursor: pointer;">
+            <div style="font-size: 0.8rem; font-weight: 900; color: #ff9800; text-transform: uppercase; margin-bottom: 5px;">🎮 GAMING</div>
+            <div style="font-size: 0.7rem; color: #777;">Gruppe aktivieren / deaktivieren</div>
+        </div>
+        <div class="room-card" style="padding: 15px; text-align: center; border: 1px solid #ff980066; border-top: 3px solid #ff9800; cursor: pointer;">
+            <div style="font-size: 0.8rem; font-weight: 900; color: #ff9800; text-transform: uppercase; margin-bottom: 5px;">⚙️ OPTION 2</div>
+            <div style="font-size: 0.7rem; color: #777;">Mehrfachaktion 2</div>
+        </div>
+        <div class="room-card" style="padding: 15px; text-align: center; border: 1px solid #ff980066; border-top: 3px solid #ff9800; cursor: pointer;">
+            <div style="font-size: 0.8rem; font-weight: 900; color: #ff9800; text-transform: uppercase; margin-bottom: 5px;">💡 OPTION 3</div>
+            <div style="font-size: 0.7rem; color: #777;">Mehrfachaktion 3</div>
+        </div>
+    </div>
+
+    <div id="main-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(400px, 1fr)); gap: 20px; margin-top: 20px;">
         <?= $rendered_cards_html ?>
     </div>
 </div>
+
 <?php include("footer.php"); ?>

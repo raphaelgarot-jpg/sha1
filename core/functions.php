@@ -34,9 +34,56 @@ function getSolarPower($ip) {
 
 if (!function_exists('handle_device_action')) {
     /**
-     * Traite les actions interactives (Tasmota Relais ou Signal Wake-On-LAN / Graceful Windows Shutdown)
+     * Traite les actions interactives (Tasmota, ADB Android, Gradation OpenBeken, etc.)
      */
     function handle_device_action() {
+        // --- 1. LECTURE PRÉALABLE DE LA CONFIGURATION MQTT DEPUIS APP.CONF ---
+        $mqtt_user = "raftanel";
+        $mqtt_pass = "";
+        $app_conf_path = dirname(__DIR__) . '/config/app.conf';
+        if (file_exists($app_conf_path)) {
+            $app_config = parse_ini_file($app_conf_path, true);
+            if (isset($app_config['MQTT'])) {
+                $mqtt_user = $app_config['MQTT']['user'] ?? $mqtt_user;
+                $mqtt_pass = $app_config['MQTT']['password'] ?? $mqtt_pass;
+            }
+        }
+        $auth_part = "-u " . escapeshellarg($mqtt_user) . " -P " . escapeshellarg($mqtt_pass);
+
+        // --- NOUVEAU CAS : REQUÊTE DE GRADATION VIA LE CURSEUR ---
+        if (isset($_POST['ip']) && isset($_POST['action']) && isset($_POST['value'])) {
+            header('Content-Type: application/json');
+            $ip = filter_var($_POST['ip'], FILTER_VALIDATE_IP);
+            $action = $_POST['action']; // 'dimmer'
+            $value = intval($_POST['value']);
+
+            if (!$ip) {
+                echo json_encode(['success' => false, 'message' => 'Ungültige IP']);
+                exit;
+            }
+
+            if ($action === 'dimmer') {
+                // Étape A : On applique l'intensité sur le canal 1
+                $cmd1 = "mosquitto_pub -h localhost $auth_part -t 'obk08466065/1/set' -m " . escapeshellarg($value) . " > /dev/null 2>&1";
+                @exec($cmd1);
+
+                // Étape B : Sécurité - Si on bouge le curseur, on s'assure que la lampe est déverrouillée (1)
+                $cmd2 = "mosquitto_pub -h localhost $auth_part -t 'obk08466065/led_enableAll' -m '1' > /dev/null 2>&1";
+                @exec($cmd2);
+
+                // Étape C : On force le canal 0 (couleur) à 0 à chaque changement
+                $cmd3 = "mosquitto_pub -h localhost $auth_part -t 'obk08466065/0/set' -m '0' > /dev/null 2>&1";
+                @exec($cmd3);
+
+                echo json_encode(['success' => true, 'message' => 'Intensité et état appliqués']);
+                exit;
+            }
+            
+            echo json_encode(['success' => false, 'message' => 'Aktion unbekannt']);
+            exit;
+        }
+
+        // --- TRAITEMENT TRADITIONNEL DES ETATS (ON / OFF) ---
         if (isset($_POST['action']) && isset($_POST['ip'])) {
             header('Content-Type: application/json');
 
@@ -53,7 +100,6 @@ if (!function_exists('handle_device_action')) {
             // --- CAS EXCLUSIF : MACHINE WINDOWS PC ---
             if ($type === 'pc') {
                 if ($target_state === 'ON') {
-                    // Envoi du signal de réveil physique (WOL)
                     $success = send_wake_on_lan($relay_or_mac);
                     if ($success) {
                         echo json_encode(['success' => true, 'new_state' => 'ON']);
@@ -61,7 +107,6 @@ if (!function_exists('handle_device_action')) {
                         echo json_encode(['success' => false, 'message' => 'WOL-Paket Fehler']);
                     }
                 } else {
-                    // 💡 LECTURE SÉCURISÉE DES IDENTIFIANTS DEPUIS APP.CONF
                     $win_user = "guest";
                     $win_pass = "";
                     $app_conf_path = dirname(__DIR__) . '/config/app.conf';
@@ -74,10 +119,7 @@ if (!function_exists('handle_device_action')) {
                         }
                     }
 
-                    // On fusionne l'authentification dans la syntaxe Samba requise (user%password)
                     $user_auth = $win_user . '%' . $win_pass;
-
-                    // Commande RPC Samba native (t 0 = immédiat / f = force la fermeture des apps)
                     $cmd = "sudo /usr/bin/net rpc shutdown -I " . escapeshellarg($ip) . " -U " . escapeshellarg($user_auth) . " -t 0 -f 2>&1";
                     @exec($cmd, $output, $return_var);
 
@@ -87,6 +129,53 @@ if (!function_exists('handle_device_action')) {
                         echo json_encode(['success' => false, 'message' => 'RPC Fehler: ' . implode(' ', $output)]);
                     }
                 }
+                exit;
+            }
+
+            // --- CAS EXCLUSIF : ANDROID / FIRE TV ---
+            if ($type === 'android') {
+                if ($target_state === 'ON') {
+                    $success = send_wake_on_lan($relay_or_mac);
+                    if ($success) {
+                        usleep(1500000);
+                        @exec("adb connect " . escapeshellarg($ip));
+                        @exec("adb -s " . escapeshellarg($ip) . " shell input keyevent 224");
+                        echo json_encode(['success' => true, 'new_state' => 'ON']);
+                    } else {
+                        echo json_encode(['success' => false, 'message' => 'WOL-Paket Android Fehler']);
+                    }
+                } else {
+                    @exec("adb -s " . escapeshellarg($ip) . " shell input keyevent 223");
+                    echo json_encode(['success' => true, 'new_state' => 'OFF']);
+                }
+                exit;
+            }
+
+            // --- CAS EXCLUSIF : APPAREILS DE TYPE LIGHT (OPENBEKEN) ---
+            if ($type === 'light') {
+                if ($target_state === 'OFF') {
+                    // Étape A : On coupe l'alimentation globale logicielle
+                    $cmd_enable = "mosquitto_pub -h localhost $auth_part -t 'obk08466065/led_enableAll' -m '0' > /dev/null 2>&1";
+                    @exec($cmd_enable);
+                    
+                    // Étape B : On remet l'intensité du canal 1 à 0 par sécurité
+                    $cmd_dim = "mosquitto_pub -h localhost $auth_part -t 'obk08466065/1/set' -m '0' > /dev/null 2>&1";
+                    @exec($cmd_dim);
+                } else {
+                    // Étape A : On active l'alimentation globale logicielle
+                    $cmd_enable = "mosquitto_pub -h localhost $auth_part -t 'obk08466065/led_enableAll' -m '1' > /dev/null 2>&1";
+                    @exec($cmd_enable);
+                    
+                    // Étape B : On allume l'intensité à 100% par défaut
+                    $cmd_dim = "mosquitto_pub -h localhost $auth_part -t 'obk08466065/1/set' -m '100' > /dev/null 2>&1";
+                    @exec($cmd_dim);
+                }
+                
+                // On s'assure dans les deux cas que la couleur reste verrouillée à 0
+                $cmd_color = "mosquitto_pub -h localhost $auth_part -t 'obk08466065/0/set' -m '0' > /dev/null 2>&1";
+                @exec($cmd_color);
+
+                echo json_encode(['success' => true, 'new_state' => $target_state]);
                 exit;
             }
 
@@ -114,7 +203,7 @@ if (!function_exists('handle_device_action')) {
 /**
  * Récupère le cache live de la RAM S.H.A.
  */
-function get_sha_live_cache($cache_path = 'data/sha_live.json') {
+function get_sha_live_cache($cache_path = '/dev/shm/sha_live.json') {
     if (file_exists($cache_path) && filesize($cache_path) > 0) {
         return json_decode(@file_get_contents($cache_path), true) ?? [];
     }
@@ -123,7 +212,7 @@ function get_sha_live_cache($cache_path = 'data/sha_live.json') {
 
 if (!function_exists('send_wake_on_lan')) {
     /**
-     * Envoie un Magic Packet Wake-On-LAN en UDP Broadcast (Pure PHP, aucun paquet Linux requis)
+     * Envoie un Magic Packet Wake-On-LAN en UDP Broadcast (Pure PHP)
      */
     function send_wake_on_lan($mac) {
         $mac = preg_replace('/[^0-9a-fA-F]/', '', $mac);

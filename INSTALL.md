@@ -752,3 +752,260 @@ New-NetFirewallRule -DisplayName "SHA ICMP Ping" -Direction Inbound -Protocol IC
 
 # 4. Autorise les jetons d'administration distants
 reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" /v "LocalAccountTokenFilterPolicy" /t REG_DWORD /d 1 /f
+
+______________
+26.05.2026
+
+1. Backend Core : /var/www/html/sha/core/functions.php
+
+La logique de traitement des commandes a été épurée. Les requêtes de gradation (curseur) et les commandes d'état (boutons ON/OFF) partagent les mêmes contraintes de sécurité. Pour le type light (OpenBeken/Dimmable), l'intensité pilote tout et le canal de couleur est forcé à 0.
+PHP
+
+<?php
+/**
+ * SHA 2026 - Fonctions Core (RAM Powered)
+ */
+
+function getSmartMeter($ip) {
+    if (empty($ip)) return 0;
+    $cache_file = '/dev/shm/sha_live.json';
+    if (!file_exists($cache_file)) return 0;
+    $live_data = json_decode(@file_get_contents($cache_file), true);
+    return $live_data['devices'][$ip]['power'] ?? 0;
+}
+
+function getTasmotaState($ip, $relay = 1) {
+    $power = getSmartMeter($ip);
+    return ($power > 1.0) ? 'ON' : 'OFF';
+}
+
+function getSolarPower($ip) {
+    return getSmartMeter($ip);
+}
+
+if (!function_exists('handle_device_action')) {
+    /**
+     * Traite les actions interactives (Tasmota, ADB Android, Gradation OpenBeken, etc.)
+     */
+    function handle_device_action() {
+        // --- 1. LECTURE PRÉALABLE DE LA CONFIGURATION MQTT DEPUIS APP.CONF ---
+        $mqtt_user = "raftanel";
+        $mqtt_pass = "";
+        $app_conf_path = dirname(__DIR__) . '/config/app.conf';
+        if (file_exists($app_conf_path)) {
+            $app_config = parse_ini_file($app_conf_path, true);
+            if (isset($app_config['MQTT'])) {
+                $mqtt_user = $app_config['MQTT']['user'] ?? $mqtt_user;
+                $mqtt_pass = $app_config['MQTT']['password'] ?? $mqtt_pass;
+            }
+        }
+        $auth_part = "-u " . escapeshellarg($mqtt_user) . " -P " . escapeshellarg($mqtt_pass);
+
+        // --- CAS A : REQUÊTE DE GRADATION DIRECTE VIA LE CURSEUR ---
+        if (isset($_POST['ip']) && isset($_POST['action']) && isset($_POST['value'])) {
+            header('Content-Type: application/json');
+            $ip = filter_var($_POST['ip'], FILTER_VALIDATE_IP);
+            $action = $_POST['action']; // 'dimmer'
+            $value = intval($_POST['value']);
+
+            if (!$ip) {
+                echo json_encode(['success' => false, 'message' => 'Ungültige IP']);
+                exit;
+            }
+
+            if ($action === 'dimmer') {
+                // Intensité cible sur Canal 1
+                $cmd1 = "mosquitto_pub -h localhost $auth_part -t 'obk08466065/1/set' -m " . escapeshellarg($value) . " > /dev/null 2>&1";
+                @exec($cmd1);
+
+                // Sécurité : On s'assure que le pilote maître est réveillé
+                $cmd2 = "mosquitto_pub -h localhost $auth_part -t 'obk08466065/led_enableAll' -m '1' > /dev/null 2>&1";
+                @exec($cmd2);
+
+                // Neutralisation définitive de la couleur sur le Canal 0
+                $cmd3 = "mosquitto_pub -h localhost $auth_part -t 'obk08466065/0/set' -m '0' > /dev/null 2>&1";
+                @exec($cmd3);
+
+                echo json_encode(['success' => true, 'message' => 'Intensité et état appliqués']);
+                exit;
+            }
+            exit;
+        }
+
+        // --- CAS B : TRAITEMENT TRADITIONNEL DES ETATS (ON / OFF) ---
+        if (isset($_POST['action']) && isset($_POST['ip'])) {
+            header('Content-Type: application/json');
+
+            $ip = filter_var($_POST['ip'], FILTER_VALIDATE_IP);
+            $target_state = ($_POST['action'] === 'ON') ? 'ON' : 'OFF';
+            $type = $_POST['type'] ?? 'socket';
+            $relay_or_mac = $_POST['relay'] ?? '';
+
+            if (!$ip) {
+                echo json_encode(['success' => false, 'message' => 'Ungültige Parameter']);
+                exit;
+            }
+
+            // [PC Windows & Android / Fire TV Omis ici pour lisibilité de la doc]
+            
+            // --- EXTINCTION / ALLUMAGE APPAREILS DE TYPE LIGHT (OPENBEKEN) ---
+            if ($type === 'light') {
+                if ($target_state === 'OFF') {
+                    // Extinction franche et abaissement des canaux à 0
+                    @exec("mosquitto_pub -h localhost $auth_part -t 'obk08466065/led_enableAll' -m '0' > /dev/null 2>&1");
+                    @exec("mosquitto_pub -h localhost $auth_part -t 'obk08466065/1/set' -m '0' > /dev/null 2>&1");
+                } else {
+                    // Allumage et rappel de l'intensité à 100%
+                    @exec("mosquitto_pub -h localhost $auth_part -t 'obk08466065/led_enableAll' -m '1' > /dev/null 2>&1");
+                    @exec("mosquitto_pub -h localhost $auth_part -t 'obk08466065/1/set' -m '100' > /dev/null 2>&1");
+                }
+                @exec("mosquitto_pub -h localhost $auth_part -t 'obk08466065/0/set' -m '0' > /dev/null 2>&1");
+
+                echo json_encode(['success' => true, 'new_state' => $target_state]);
+                exit;
+            }
+
+            // --- MODULES TASMOTA STANDARD RELAIS ---
+            $relay_num = intval($relay_or_mac);
+            if ($relay_num >= 1) {
+                $url = "http://{$ip}/cm?cmnd=Power{$relay_num}%20{$target_state}";
+                $ctx = stream_context_create(['http' => ['timeout' => 2]]);
+                @file_get_contents($url, false, $ctx);
+                echo json_encode(['success' => true, 'new_state' => $target_state]);
+                exit;
+            }
+        }
+    }
+}
+
+function get_sha_live_cache($cache_path = '/dev/shm/sha_live.json') {
+    if (file_exists($cache_path) && filesize($cache_path) > 0) {
+        return json_decode(@file_get_contents($cache_path), true) ?? [];
+    }
+    return [];
+}
+
+🎛️ 2. Interface Utilisateur : /var/www/html/sha/steckdose.php
+
+Le popover et sa flèche ▼ ont été balayés. La tirette d'intensité (Helligkeit) est maintenant directement intégrée sur la ligne, à la suite du badge 🟢 ON. Elle ne s'affiche que si l'appareil est allumé. Aucun code JavaScript n'est toléré dans ce fichier.
+PHP
+
+// [Lignes d'initialisation 1-80 inchangées]
+foreach ($dev_list as $d) {
+    $is_on = ($d['state'] === 'ON');
+    $row_class = $d['offline'] ? "dev-row offline" : ($is_on ? "dev-row state-on" : "dev-row state-off");
+
+    $rendered_cards_html .= '      <div class="' . $row_class . '">';
+    $rendered_cards_html .= '          <span class="dev-name"><span>' . $d['icon'] . ' ' . $d['label'] . '</span>';
+    
+    $rendered_cards_html .= '          <span class="status-container" style="display: inline-flex; align-items: center; gap: 15px;">';
+    $rendered_cards_html .= '              <span class="status-text ' . ($d['offline'] ? 'offline' : ($is_on ? 'on' : 'off')) . '">' . ($d['offline'] ? '⚠️ Offline' : ($is_on ? '🟢 ON' : '⚫ OFF')) . '</span>';
+    
+    // Rendu en ligne direct si ON et dimmable
+    if ($is_on && $d['dimmable']) {
+        $rendered_cards_html .= '          <span class="direct-dimmer-block" style="display: inline-flex; align-items: center; gap: 8px;">';
+        $rendered_cards_html .= '              <input type="range" min="0" max="100" value="' . $d['dimmer'] . '" style="width: 90px; accent-color: #ff9800; margin: 0; cursor: pointer;" oninput="this.nextElementSibling.innerText = this.value + \'%\'" onchange="sendOBKDimmer(\'' . $d['ip'] . '\', \'dimmer\', this.value)">';
+        $rendered_cards_html .= '              <span style="font-size: 0.7rem; font-weight: bold; color: #ff9800; min-width: 32px; text-align: right;">' . $d['dimmer'] . '%</span>';
+        $rendered_cards_html .= '          </span>';
+    }
+    
+    $rendered_cards_html .= '          </span></span>';
+    $rendered_cards_html .= '          <button class="toggle-btn ' . ($is_on ? 'btn-on' : 'btn-off') . '" data-type="' . $d['type'] . '" data-ip="' . $d['ip'] . '" data-relay="' . $d['relay'] . '" data-state="' . $d['state'] . '" data-label="' . htmlspecialchars($d['label'], ENT_QUOTES) . '">' . ($is_on ? 'OFF' : 'ON') . '</button>';
+    $rendered_cards_html .= '      </div>';
+}
+// [Fin de fichier classique avec inclusion du footer]
+
+⚡ 3. Interactivité Instantanée : /var/www/html/sha/core/functions.js
+
+Pour tricher sur la latence du réseau, le fichier JS intercepte le clic sur le bouton maître et applique un effet visuel immédiat : il injecte la tirette à 100% dès le clic sur ON, et la détruit au millième de seconde dès le clic sur OFF.
+JavaScript
+
+/**
+ * S.H.A. 2026 - Fonctions JavaScript Core
+ */
+
+document.addEventListener('click', function(e) {
+    if (e.target && e.target.classList.contains('toggle-btn')) {
+        const btn = e.target;
+        const type = btn.getAttribute('data-type');
+        const ip = btn.getAttribute('data-ip');
+        const currentState = btn.getAttribute('data-state'); 
+
+        if (type === 'light') {
+            const row = btn.closest('.dev-row');
+            if (!row) return;
+            
+            const statusContainer = row.querySelector('.status-container');
+            if (!statusContainer) return;
+
+            // Injection instantanée au clic sur ON
+            if (currentState === 'OFF') {
+                if (!statusContainer.querySelector('.direct-dimmer-block')) {
+                    const dimmerHtml = `
+                        <span class="direct-dimmer-block" style="display: inline-flex; align-items: center; gap: 8px;">
+                            <input type="range" min="0" max="100" value="100" style="width: 90px; accent-color: #ff9800; margin: 0; cursor: pointer;" oninput="this.nextElementSibling.innerText = this.value + '%'" onchange="sendOBKDimmer('${ip}', 'dimmer', this.value)">
+                            <span style="font-size: 0.7rem; font-weight: bold; color: #ff9800; min-width: 32px; text-align: right;">100%</span>
+                        </span>
+                    `;
+                    statusContainer.insertAdjacentHTML('beforeend', dimmerHtml);
+                }
+            } 
+            // Destruction immédiate au clic sur OFF
+            else if (currentState === 'ON') {
+                const dimmerBlock = statusContainer.querySelector('.direct-dimmer-block');
+                if (dimmerBlock) dimmerBlock.remove();
+            }
+        }
+    }
+});
+
+function sendOBKDimmer(ip, action, value) {
+    const formData = new FormData();
+    formData.append('ip', ip);
+    formData.append('action', action);
+    formData.append('value', value);
+    fetch('steckdose.php', { method: 'POST', body: formData });
+}
+
+🐍 4. Worker de Cache Python : scripts/sha_cache_builder.py
+
+Pour éliminer définitivement les fausses remontées d'état (led_enableAll/get 0) de la lampe alors qu'elle est allumée, le script Python applique un filtrage de confiance : l'ordre /1/set est roi. Les retours /get menteurs sont ignorés.
+Python
+
+        # --- CAS 2 : OPENBEKEN (Version alignée sur les canaux PHP) ---
+        elif device_id.startswith("obk") or "OpenBK" in topic:
+            ip_match = re.search(r'192\.168\.\d+\.\d+', payload_str)
+            if ip_match: topic_to_ip_map[device_id] = ip_match.group(0)
+            ip = topic_to_ip_map.get(device_id)
+            if ip:
+                # Interception des ordres uniquement (on rejette les /get)
+                if "led_enableAll" in topic:
+                    if not topic.endswith("/get"):
+                        new_state = "ON" if payload_str in ["1", "ON", "TRUE"] else "OFF"
+                        update_device_cache(ip, state=new_state)
+                        update_device_cache(ip, state=new_state, channel="1")
+                
+                # Le levier d'intensité /1/set dicte la valeur et le statut réel
+                elif topic.endswith("/1/set") or (topic.endswith("/1") and not topic.endswith("/get")):
+                    try:
+                        val = int(float(payload_str))
+                        if val == 0:
+                            update_device_cache(ip, state="OFF", channel="1")
+                        else:
+                            update_device_cache(ip, dimmer=val, state="ON", channel="1")
+                    except: pass
+
+                # Secours : Prise de valeur initiale uniquement au reboot du script
+                elif "led_dimmer" in topic:
+                    try:
+                        dim_val = int(float(payload_str))
+                        if dim_val > 0:
+                            if cached_devices.get(ip, {}).get("dimmer") is None:
+                                update_device_cache(ip, dimmer=dim_val)
+                    except: pass
+
+🛠️ 5. Analyse Périphériques (TV Android & Shelly Gen 1)
+
+    Android TV (Sleep Timer Bloqué) : L'injection dans functions.php écrase le timeout système d'Android (screen_off_timeout 0 et sleep_timeout 0). En cas de firmware constructeur trop agressif, la parade validée est l'envoi d'un signal fantôme keyevent 224 par cron toutes les 15 minutes.
+
+    Shelly Dimmer 2 (MQTT Structure) : Identifié sur MQTT Explorer sous le nœud racine inamovible shellies/. Pour l'intégrer proprement, la recommandation est de remplacer son long ID d'usine par un préfixe personnalisé dans son interface développeur (ex: salon_dimmer), puis d'ouvrir la condition du sha_cache_builder.py à "shellies" in topic.
