@@ -183,9 +183,9 @@ def on_message(client, userdata, msg):
 
 
         
-           # --- CAS 2 : APPAREILS APYRAMIDAUX (OPENBEKEN & SHELLY GEN 1) ---
+# --- CAS 2 : APPAREILS APYRAMIDAUX (OPENBEKEN & SHELLY GEN 1) ---
         elif device_id.startswith("obk") or "shellies" in topic or "OpenBK" in topic:
-            # 💡 REVOLUTION DE L'ID UNIQUE : On extrait le vrai nom (index 1) si la racine est générique
+            # REVOLUTION DE L'ID UNIQUE : On extrait le vrai nom (index 1) si la racine est générique
             resolved_id = device_id
             if device_id == "shellies" and len(parts) > 1:
                 resolved_id = parts[1]
@@ -199,17 +199,17 @@ def on_message(client, userdata, msg):
             
             ip = topic_to_ip_map.get(resolved_id)
             if ip:
-                # On enregistre enfin la BONNE correspondance dans sha_live.json
+                # On enregistre la correspondance dans sha_live.json
                 update_device_cache(ip, mqtt_name=resolved_id)
-                # 🚀 INTERCEPTION DES ORDRES MAITRES (On ignore les faux "/get" du firmware)
-                if "led_enableAll" in topic:
-                    if not topic.endswith("/get"):
-                        new_state = "ON" if payload_str in ["1", "ON", "TRUE"] else "OFF"
-                        update_device_cache(ip, state=new_state)
-                        update_device_cache(ip, state=new_state, channel="1")
-                        update_device_cache(ip, state=new_state, channel="0")
                 
-                # 🚀 LEVIER PRINCIPAL : L'ordre d'intensité /1/set (Priorité absolue pour la valeur et l'état)
+                # 🚀 1. PRIORITÉ ABSOLUE : Statut Maître via led_enableAll (gère led_enableAll et led_enableAll/get)
+                if "led_enableAll" in topic:
+                    new_state = "ON" if payload_str in ["1", "ON", "TRUE"] else "OFF"
+                    update_device_cache(ip, state=new_state)
+                    update_device_cache(ip, state=new_state, channel="1")
+                    update_device_cache(ip, state=new_state, channel="0")
+                
+                # 🚀 2. LEVIER SECONDAIRE : L'ordre d'intensité /1/set
                 elif topic.endswith("/1/set") or (topic.endswith("/1") and not topic.endswith("/get")):
                     try:
                         val = int(float(payload_str))
@@ -218,19 +218,16 @@ def on_message(client, userdata, msg):
                             update_device_cache(ip, state="OFF", channel="1")
                             update_device_cache(ip, state="OFF", channel="0")
                         else:
-                            # On force l'affichage de la tirette sur CETTE valeur exacte demandée
                             update_device_cache(ip, dimmer=val, state="ON")
                             update_device_cache(ip, state="ON", channel="1")
                             update_device_cache(ip, state="ON", channel="0")
                     except: pass
 
-                # 🚀 SOLUTION DE SECOURS : Valeur lue par la lampe
+                # 🚀 3. VALEUR DE GRADATION : Lecture seule de l'intensité
                 elif "led_dimmer" in topic:
                     try:
                         dim_val = int(float(payload_str))
                         if dim_val > 0:
-                            # On ne prend cette valeur QUE si on n'a encore rien stocké via /1/set
-                            # (Permet de récupérer la valeur par défaut au redémarrage)
                             current_cached_dimmer = cached_devices.get(ip, {}).get("dimmer")
                             if current_cached_dimmer is None:
                                 update_device_cache(ip, dimmer=dim_val)
