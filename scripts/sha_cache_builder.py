@@ -183,12 +183,24 @@ def on_message(client, userdata, msg):
 
 
         
-            # --- CAS 2 : APPAREILS APYRAMIDAUX (OPENBEKEN & SHELLY GEN 1) ---
+           # --- CAS 2 : APPAREILS APYRAMIDAUX (OPENBEKEN & SHELLY GEN 1) ---
         elif device_id.startswith("obk") or "shellies" in topic or "OpenBK" in topic:
+            # 💡 REVOLUTION DE L'ID UNIQUE : On extrait le vrai nom (index 1) si la racine est générique
+            resolved_id = device_id
+            if device_id == "shellies" and len(parts) > 1:
+                resolved_id = parts[1]
+            elif "OpenBK" in topic and len(parts) > 1 and not device_id.startswith("obk"):
+                resolved_id = parts[1] if parts[1].startswith("obk") else device_id
+
+            # Extraction et association de l'IP avec le VRAI ID unique résolu
             ip_match = re.search(r'192\.168\.\d+\.\d+', payload_str)
-            if ip_match: topic_to_ip_map[device_id] = ip_match.group(0)
-            ip = topic_to_ip_map.get(device_id)
+            if ip_match: 
+                topic_to_ip_map[resolved_id] = ip_match.group(0)
+            
+            ip = topic_to_ip_map.get(resolved_id)
             if ip:
+                # On enregistre enfin la BONNE correspondance dans sha_live.json
+                update_device_cache(ip, mqtt_name=resolved_id)
                 # 🚀 INTERCEPTION DES ORDRES MAITRES (On ignore les faux "/get" du firmware)
                 if "led_enableAll" in topic:
                     if not topic.endswith("/get"):
