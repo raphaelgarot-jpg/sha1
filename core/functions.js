@@ -144,6 +144,7 @@ function initDeviceToggles() {
         var currentState = btn.getAttribute('data-state');
         var label = btn.getAttribute('data-label');
         var type = btn.getAttribute('data-type') || 'socket'; // 💡 Récupération du type de périphérique
+        var mqtt_name = btn.getAttribute('data-mqtt') || '';  // 💡 AJOUT : Récupération du nom MQTT depuis le HTML
 
         var nextAction = (currentState === 'ON') ? 'OFF' : 'ON';
         var devRow = btn.closest('.dev-row');
@@ -161,7 +162,8 @@ function initDeviceToggles() {
         formData.append('action', nextAction);
         formData.append('ip', ip);
         formData.append('relay', relay);
-        formData.append('type', type); // 💡 Envoi du type de périphérique à functions.php
+        formData.append('type', type);         // 💡 Envoi du type de périphérique à functions.php
+        formData.append('mqtt_name', mqtt_name); // 💡 AJOUT : Envoi du nom MQTT à functions.php
 
         fetch('steckdose.php', {
             method: 'POST',
