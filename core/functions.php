@@ -52,7 +52,7 @@ if (!function_exists('handle_device_action')) {
 
         
 
-        // --- NOUVEAU CAS : REQUÊTE DE GRADATION VIA LE CURSEUR ---
+// --- NOUVEAU CAS : REQUÊTE DE GRADATION VIA LE CURSEUR ---
         if (isset($_POST['ip']) && isset($_POST['action']) && isset($_POST['value'])) {
             header('Content-Type: application/json');
             $ip = filter_var($_POST['ip'], FILTER_VALIDATE_IP);
@@ -65,16 +65,33 @@ if (!function_exists('handle_device_action')) {
             }
 
             if ($action === 'dimmer') {
+                // 💡 EXTRACTION DYNAMIQUE DU NOM MQTT DEPUIS LE CACHE RAM
+                $mqtt_name = "";
+                $cache_file = '/dev/shm/sha_live.json';
+                if (file_exists($cache_file)) {
+                    $live_data = json_decode(@file_get_contents($cache_file), true);
+                    $mqtt_name = $live_data['devices'][$ip]['mqtt_name'] ?? "";
+                }
+
+                // Sécurité si le module n'a pas encore envoyé de trame au cache builder
+                if (empty($mqtt_name)) {
+                    echo json_encode(['success' => false, 'message' => 'MQTT-Name nicht im Cache gefunden']);
+                    exit;
+                }
+
+                // Construction propre de la base de la commande mosquitto
+                $mqtt_base = "mosquitto_pub -h localhost " . ($auth_part ?? "");
+
                 // Étape A : On applique l'intensité sur le canal 1
-                $cmd1 = "mosquitto_pub -h localhost $auth_part -t 'obk08466065/1/set' -m " . escapeshellarg($value) . " > /dev/null 2>&1";
+                $cmd1 = $mqtt_base . " -t " . escapeshellarg($mqtt_name . "/1/set") . " -m " . escapeshellarg($value) . " > /dev/null 2>&1";
                 @exec($cmd1);
 
                 // Étape B : Sécurité - Si on bouge le curseur, on s'assure que la lampe est déverrouillée (1)
-                $cmd2 = "mosquitto_pub -h localhost $auth_part -t 'obk08466065/led_enableAll' -m '1' > /dev/null 2>&1";
+                $cmd2 = $mqtt_base . " -t " . escapeshellarg($mqtt_name . "/led_enableAll") . " -m '1' > /dev/null 2>&1";
                 @exec($cmd2);
 
                 // Étape C : On force le canal 0 (couleur) à 0 à chaque changement
-                $cmd3 = "mosquitto_pub -h localhost $auth_part -t 'obk08466065/0/set' -m '0' > /dev/null 2>&1";
+                $cmd3 = $mqtt_base . " -t " . escapeshellarg($mqtt_name . "/0/set") . " -m '0' > /dev/null 2>&1";
                 @exec($cmd3);
 
                 echo json_encode(['success' => true, 'message' => 'Intensité et état appliqués']);
@@ -124,7 +141,7 @@ if (!function_exists('handle_device_action')) {
                 if ($switch_id < 0) $switch_id = 0;
 
                 $payload = '{"id":' . $trigger_id . ',"src":"sha_backend","method":"Switch.Set","params":{"id":' . $switch_id . ',"on":' . $rpc_bool . '}}';
-                echo $cmd = trim("mosquitto_pub -h localhost " . $auth_part) . " -t " . escapeshellarg($topic) . " -m " . escapeshellarg($payload);
+                $cmd = trim("mosquitto_pub -h localhost " . $auth_part) . " -t " . escapeshellarg($topic) . " -m " . escapeshellarg($payload);
                 
                 // --- EXÉCUTION DU SCRIPT MQTT ---
                 // Le "2>&1" permet de capturer les messages d'erreur système (droits, binaire manquant, etc.)

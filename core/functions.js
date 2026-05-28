@@ -238,11 +238,15 @@ document.addEventListener('click', function(e) {
         const type = btn.getAttribute('data-type');
         const ip = btn.getAttribute('data-ip');
         const currentState = btn.getAttribute('data-state'); // "ON" ou "OFF"
+        
+        // 💡 AJOUT : On vérifie si la lampe est dimmable (vaut "1")
+        const isDimmable = btn.getAttribute('data-dimmable') === '1'; 
 
-        if (type === 'light') {
+        // 💡 MODIFICATION : On restreint l'action aux lampes gradables uniquement
+        if (type === 'light' && isDimmable) {
             const row = btn.closest('.dev-row');
             if (!row) return;
-            
+
             const statusContainer = row.querySelector('.status-container');
             if (!statusContainer) return;
 
@@ -257,7 +261,7 @@ document.addEventListener('click', function(e) {
                     `;
                     statusContainer.insertAdjacentHTML('beforeend', dimmerHtml);
                 }
-            } 
+            }
             // 🚀 ACTION INSTANTANÉE AU CLIC SUR "OFF" : On vire la tirette immédiatement
             else if (currentState === 'ON') {
                 const dimmerBlock = statusContainer.querySelector('.direct-dimmer-block');

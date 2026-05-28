@@ -9,12 +9,11 @@ $defaults = $rooms['Defaults'] ?? [];
 $live_data = get_sha_live_cache();
 $tas_cache = $live_data['devices'] ?? [];
 $rendered_cards_html = "";
-$mqtt_name = (isset($parts[5]) && trim($parts[5]) !== 'no_relay' && trim($parts[5]) !== 'dimmable') ? trim($parts[5]) : "";
 
 if (is_array($rooms)) {
     foreach ($rooms as $name => $data) {
         if ($name == 'System' || $name == 'Defaults') continue;
-        $dev_list = []; 
+        $dev_list = [];
         $room_active_count = 0;
 
         $all_raw_devices = array_merge($data['devices'] ?? [], $data['pcs'] ?? []);
@@ -29,11 +28,14 @@ if (is_array($rooms)) {
                 continue;
             }
 
+            // 💡 CORRECTION : Placé ici dans la boucle pour que $parts existe !
+            $mqtt_name = (isset($parts[5]) && trim($parts[5]) !== 'no_relay' && trim($parts[5]) !== 'dimmable') ? trim($parts[5]) : "";
+
             if (in_array($type, ['socket', 'light', 'light_p', 'pc', 'android'])) {
                 $dev_data = $tas_cache[$ip] ?? null;
-                $is_offline = true; 
+                $is_offline = true;
                 $current_state = "OFF";
-                
+
                 // Détection de l'option Dimmable
                 $is_dimmable = false;
                 foreach($parts as $part) {
@@ -90,10 +92,10 @@ if (is_array($rooms)) {
 
             $rendered_cards_html .= '      <div class="' . $row_class . '">';
             $rendered_cards_html .= '          <span class="dev-name"><span>' . $d['icon'] . ' ' . $d['label'] . '</span>';
-            
+
             $rendered_cards_html .= '          <span class="status-container">';
             $rendered_cards_html .= '              <span class="status-text ' . ($d['offline'] ? 'offline' : ($is_on ? 'on' : 'off')) . '">' . ($d['offline'] ? '⚠️ Offline' : ($is_on ? '🟢 ON' : '⚫ OFF')) . '</span>';
-            
+
             // Rendu de la tirette en ligne directe sans fioritures (si ON)
             if ($is_on && $d['dimmable']) {
                 $rendered_cards_html .= '          <span class="direct-dimmer-block">';
@@ -101,9 +103,10 @@ if (is_array($rooms)) {
                 $rendered_cards_html .= '              <span class="dimmer-percent">' . $d['dimmer'] . '%</span>';
                 $rendered_cards_html .= '          </span>';
             }
-            
+
             $rendered_cards_html .= '          </span></span>';
-            $rendered_cards_html .= '          <button class="toggle-btn ' . ($is_on ? 'btn-on' : 'btn-off') . '" data-type="' . $d['type'] . '" data-ip="' . $d['ip'] . '" data-relay="' . $d['relay'] . '" data-mqtt="' . $mqtt_name . '" data-state="' . $d['state'] . '" data-label="' . htmlspecialchars($d['label'], ENT_QUOTES) . '">' . ($is_on ? 'OFF' : 'ON') . '</button>';
+            // 💡 AJOUT : data-dimmable et d['mqtt_name'] corrigé pour le bouton
+            $rendered_cards_html .= '          <button class="toggle-btn ' . ($is_on ? 'btn-on' : 'btn-off') . '" data-type="' . $d['type'] . '" data-ip="' . $d['ip'] . '" data-relay="' . $d['relay'] . '" data-mqtt="' . $d['mqtt_name'] . '" data-dimmable="' . ($d['dimmable'] ? '1' : '0') . '" data-state="' . $d['state'] . '" data-label="' . htmlspecialchars($d['label'], ENT_QUOTES) . '">' . ($is_on ? 'OFF' : 'ON') . '</button>';
             $rendered_cards_html .= '      </div>';
         }
         $rendered_cards_html .= '  </div></div>';
