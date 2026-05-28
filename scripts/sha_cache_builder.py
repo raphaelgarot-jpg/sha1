@@ -109,7 +109,7 @@ def discover_and_ping_pcs():
                 cached_devices[ip] = {"power": 0.0, "state": "ON" if is_online else "OFF", "channels": {}, "channel_states": {}, "last_seen": int(time.time())}
                 updated = True
 
-        # --- CAS 2 : LES APPAREILS ANDROID (Avec gestion MAC) ---
+# --- CAS 2 : LES APPAREILS ANDROID (Avec gestion MAC) ---
         elif "android|" in line:
             # Extraction de l'IP (groupe 1) et de la MAC (groupe 2)
             match = re.search(r'android\|(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\|([0-9A-Fa-f:]{17})', line)
@@ -119,6 +119,14 @@ def discover_and_ping_pcs():
                 # mais elle est bien lue et prête si besoin.
 
                 state = get_android_state(ip)
+
+                # 💡 INTÉGRATION KEEP-ALIVE : Si l'écran n'a pas été éteint manuellement (état ON),
+                # on injecte une commande d'activité fictive (224 = KEYCODE_WAKEUP) pour forcer le maintien de l'écran.
+                if state == "ON":
+                    try:
+                        subprocess.run(f"adb -s {ip} shell input keyevent 224", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1)
+                    except:
+                        pass
 
                 cached_devices[ip] = {
                     "power": 0.0,
