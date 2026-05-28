@@ -49,12 +49,15 @@ def clean_expired_devices():
     expired = [ip for ip, dev in cached_devices.items() if now - dev["last_seen"] > MAX_AGE_SECONDS]
     for ip in expired: del cached_devices[ip]
 
-def update_device_cache(ip, power=None, state=None, channel=None, dimmer=None, temperature=None):
+def update_device_cache(ip, power=None, state=None, channel=None, dimmer=None, temperature=None, mqtt_name=None):
     global cached_devices
     now = int(time.time())
 
     if ip not in cached_devices:
         cached_devices[ip] = {"power": 0.0, "state": "OFF", "channels": {}, "channel_states": {}, "dimmer": 100, "temperature": 154, "last_seen": now}
+
+    if mqtt_name is not None:
+        cached_devices[ip]["mqtt_name"] = mqtt_name
 
     if channel is not None:
         ch_key = str(channel)
@@ -232,7 +235,7 @@ def on_message(client, userdata, msg):
             ip_match = re.search(r'192_168_\d+_\d+', device_id)
             if not ip_match: return
             ip = ip_match.group(0).replace("_", ".")
-
+            update_device_cache(ip, mqtt_name=device_id)
             if payload_str.startswith("{"):
                 try:
                     data = json.loads(payload_str)

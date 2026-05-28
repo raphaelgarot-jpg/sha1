@@ -38,7 +38,7 @@ if (!function_exists('handle_device_action')) {
      */
     function handle_device_action() {
         // --- 1. LECTURE PRÉALABLE DE LA CONFIGURATION MQTT DEPUIS APP.CONF ---
-        $mqtt_user = "raftanel";
+        $mqtt_user = "";
         $mqtt_pass = "";
         $app_conf_path = dirname(__DIR__) . '/config/app.conf';
         if (file_exists($app_conf_path)) {
@@ -49,6 +49,8 @@ if (!function_exists('handle_device_action')) {
             }
         }
         $auth_part = "-u " . escapeshellarg($mqtt_user) . " -P " . escapeshellarg($mqtt_pass);
+
+        
 
         // --- NOUVEAU CAS : REQUÊTE DE GRADATION VIA LE CURSEUR ---
         if (isset($_POST['ip']) && isset($_POST['action']) && isset($_POST['value'])) {
@@ -91,9 +93,57 @@ if (!function_exists('handle_device_action')) {
             $target_state = ($_POST['action'] === 'ON') ? 'ON' : 'OFF';
             $type = $_POST['type'] ?? 'socket';
             $relay_or_mac = $_POST['relay'] ?? '';
+            
+            // --- 💡 EXTRACTION DU NOM MQTT DEPUIS LE NOUVEAU CACHE PYTHON ---
+            $mqtt_name = "";
+            $cache_file = '/dev/shm/sha_live.json';
+            if (file_exists($cache_file)) {
+                $live_data = json_decode(@file_get_contents($cache_file), true);
+                // On récupère la clé 'mqtt_name' magiquement créée par le script Python
+                $mqtt_name = $live_data['devices'][$ip]['mqtt_name'] ?? "";
+            }
 
             if (!$ip) {
                 echo json_encode(['success' => false, 'message' => 'Ungültige Parameter']);
+                exit;
+            }
+
+           
+
+
+            // Le flag $is_shelly s'active car le nom contient "shelly"
+            $is_shelly = (strpos($mqtt_name, 'helly') !== false);
+
+            if ($is_shelly) {
+                $topic = $mqtt_name . "/rpc";
+                $rpc_bool = ($target_state === 'ON') ? 'true' : 'false';
+                
+                // 💡 Gestion des IDs de Triggers
+                $trigger_id = intval($relay_or_mac); // ID du trigger pour le suivi (ex: 1, 2, 3...)
+                $switch_id = $trigger_id;        // Index du switch interne Shelly (ex: 0, 1, 2...)
+                if ($switch_id < 0) $switch_id = 0;
+
+                $payload = '{"id":' . $trigger_id . ',"src":"sha_backend","method":"Switch.Set","params":{"id":' . $switch_id . ',"on":' . $rpc_bool . '}}';
+                echo $cmd = trim("mosquitto_pub -h localhost " . $auth_part) . " -t " . escapeshellarg($topic) . " -m " . escapeshellarg($payload);
+                
+                // --- EXÉCUTION DU SCRIPT MQTT ---
+                // Le "2>&1" permet de capturer les messages d'erreur système (droits, binaire manquant, etc.)
+                @exec($cmd . " 2>&1", $output, $return_var);
+
+                if ($return_var === 0) {
+                    // Succès : On confirme le nouvel état au JavaScript pour mettre l'UI à jour
+                    echo json_encode([
+                        'success' => true, 
+                        'new_state' => $target_state
+                    ]);
+                } else {
+                    // Échec de la commande mosquitto_pub
+                    /*echo json_encode([
+                        'success' => false, 
+                        'message' => 'MQTT Exec Error (Code ' . $return_var . ')',
+                        'error_details' => implode(' ', $output)
+                    ]);*/
+                }
                 exit;
             }
 
@@ -151,33 +201,21 @@ if (!function_exists('handle_device_action')) {
                 exit;
             }
 
-            // --- CAS EXCLUSIF : APPAREILS DE TYPE LIGHT (OPENBEKEN) ---
-            if ($type === 'light') {
+            // --- CAS EXCLUSIF : OPENBEKEN (UNIQUEMENT SI L'IDENTIFIANT MQTT EST EXPLICITEMENT OBK) ---
+            if (strpos($relay_or_mac, 'obk') === 0) {
                 if ($target_state === 'OFF') {
-                    // Étape A : On coupe l'alimentation globale logicielle
-                    $cmd_enable = "mosquitto_pub -h localhost $auth_part -t 'obk08466065/led_enableAll' -m '0' > /dev/null 2>&1";
-                    @exec($cmd_enable);
-                    
-                    // Étape B : On remet l'intensité du canal 1 à 0 par sécurité
-                    $cmd_dim = "mosquitto_pub -h localhost $auth_part -t 'obk08466065/1/set' -m '0' > /dev/null 2>&1";
-                    @exec($cmd_dim);
+                    @exec("mosquitto_pub -h localhost $auth_part -t '{$relay_or_mac}/led_enableAll' -m '0' > /dev/null 2>&1");
+                    @exec("mosquitto_pub -h localhost $auth_part -t '{$relay_or_mac}/1/set' -m '0' > /dev/null 2>&1");
                 } else {
-                    // Étape A : On active l'alimentation globale logicielle
-                    $cmd_enable = "mosquitto_pub -h localhost $auth_part -t 'obk08466065/led_enableAll' -m '1' > /dev/null 2>&1";
-                    @exec($cmd_enable);
-                    
-                    // Étape B : On allume l'intensité à 100% par défaut
-                    $cmd_dim = "mosquitto_pub -h localhost $auth_part -t 'obk08466065/1/set' -m '100' > /dev/null 2>&1";
-                    @exec($cmd_dim);
+                    @exec("mosquitto_pub -h localhost $auth_part -t '{$relay_or_mac}/led_enableAll' -m '1' > /dev/null 2>&1");
+                    @exec("mosquitto_pub -h localhost $auth_part -t '{$relay_or_mac}/1/set' -m '100' > /dev/null 2>&1");
                 }
-                
-                // On s'assure dans les deux cas que la couleur reste verrouillée à 0
-                $cmd_color = "mosquitto_pub -h localhost $auth_part -t 'obk08466065/0/set' -m '0' > /dev/null 2>&1";
-                @exec($cmd_color);
+                @exec("mosquitto_pub -h localhost $auth_part -t '{$relay_or_mac}/0/set' -m '0' > /dev/null 2>&1");
 
                 echo json_encode(['success' => true, 'new_state' => $target_state]);
                 exit;
             }
+
 
             // --- CAS TRADITIONNEL : MODULES TASMOTA RELAIS ---
             $relay_num = intval($relay_or_mac);
