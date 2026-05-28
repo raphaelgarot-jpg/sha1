@@ -67,6 +67,7 @@ $solar_watt = $tas_cache[$sys['ip_solar_tasmota']]['power'] ?? 0;
 // 💡 4.5 PASSE DE PRÉ-CALCUL : Extraction des puissances temps réel pour soustractions croisées
 $p_pc_famille = 0;
 $p_bildschirm_raf = 0;
+$p_licht_kommode = 0;
 
 foreach ($rooms as $r_name => $r_data) {
     if (in_array($r_name, ['System', 'Defaults'])) continue;
@@ -94,6 +95,10 @@ foreach ($rooms as $r_name => $r_data) {
             // Capture dynamique pour la soustraction Raf
             if (strpos(strtolower($label), 'bildschirm raf') !== false) {
                 $p_bildschirm_raf = $dev_power;
+            }
+            // Capture dynamique pour la soustraction Kommode
+            if (strpos(strtolower($label), 'licht kommode') !== false) {
+                $p_licht_kommode = $dev_power;
             }
         }
     }
@@ -138,6 +143,11 @@ foreach ($rooms as $name => $data) {
                     // 💡 SOUSTRACTION 2 : Le Bildschirm Raf est déduit du PC Raf
                     if (strpos(strtolower($label), 'pc raf') !== false) {
                         $p = max(0, $p - $p_bildschirm_raf);
+                    }
+
+                    // 💡 AJOUT - SOUSTRACTION 3 : La Kommode est déduite du réseau EG
+                    if (strpos(strtolower($label), 'netzwerk erdgeschoss') !== false) {
+                        $p = max(0, $p - $p_licht_kommode);
                     }
                 }
 
