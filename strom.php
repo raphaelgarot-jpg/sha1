@@ -7,13 +7,13 @@ $sys = $rooms['System'];
 $defaults = $rooms['Defaults'] ?? [];
 
 // 2. LECTURE DU CACHE RAM (Ultra-rapide avec détection d'erreur)
-$cache_file = 'data/sha_live.json';
+$cache_file = '/dev/shm/sha_live.json';
 $tas_cache = [];
 
 if (!file_exists($cache_file) || filesize($cache_file) === 0) {
     die("<div class='container'><div class='room-card' style='border: 2px solid var(--red); padding: 20px; text-align: center;'>
             <h3 style='color: var(--red); margin-bottom: 10px;'>⚠️ Erreur Critique : S.H.A. Cache hors ligne</h3>
-            <p style='font-size: 0.85rem; color: #aaa;'>Le fichier de cache en RAM est vide ou introuvable. Le service <code>sha-worker.service</code> est probablement arrêté.</p>
+            <p style='font-size: 0.85rem; color: #aaa;'>Le fichier de cache en RAM est vide ou introuvable. Le service <code>sha-cache-builder.service</code> est probablement arrêté.</p>
          </div></div>");
 }
 
@@ -68,6 +68,7 @@ $solar_watt = $tas_cache[$sys['ip_solar_tasmota']]['power'] ?? 0;
 $p_pc_famille = 0;
 $p_bildschirm_raf = 0;
 $p_licht_kommode = 0;
+$p_moniteur_bureau = 0; // 💡 AJOUT : Stockage temporaire de la puissance du moniteur bureau
 
 foreach ($rooms as $r_name => $r_data) {
     if (in_array($r_name, ['System', 'Defaults'])) continue;
@@ -76,7 +77,7 @@ foreach ($rooms as $r_name => $r_data) {
             $parts = explode('|', $dev);
             if (count($parts) < 4) continue;
             list($type, $ip, $relay, $label) = $parts;
-            
+
             // On extrait la puissance brute pour analyse
             $dev_power = 0;
             $dev_data = $tas_cache[$ip] ?? null;
@@ -100,6 +101,10 @@ foreach ($rooms as $r_name => $r_data) {
             if (strpos(strtolower($label), 'licht kommode') !== false) {
                 $p_licht_kommode = $dev_power;
             }
+            // 💡 AJOUT : Capture dynamique pour le moniteur bureau via son IP ou son Label
+            if ($ip === '192.168.0.64' || strpos(strtolower($label), 'moniteur bureau') !== false) {
+                $p_moniteur_bureau = $dev_power;
+            }
         }
     }
 }
@@ -107,7 +112,7 @@ foreach ($rooms as $r_name => $r_data) {
 
 // 5. Initialisation pour le calcul global
 $sum_rooms_consumption = 0;
-$rendered_cards_html = ""; 
+$rendered_cards_html = "";
 
 foreach ($rooms as $name => $data) {
     if (in_array($name, ['System', 'Defaults'])) continue;
@@ -128,7 +133,7 @@ foreach ($rooms as $name => $data) {
 
                 if ($dev_data !== null && abs(time() - ($dev_data['last_seen'] ?? 0)) < 600) {
                     $is_offline = false;
-                    
+
                     if (isset($dev_data['channel_states']) && isset($dev_data['channels'][$relay])) {
                         $p = $dev_data['channels'][$relay];
                     } else {
@@ -145,9 +150,14 @@ foreach ($rooms as $name => $data) {
                         $p = max(0, $p - $p_bildschirm_raf);
                     }
 
-                    // 💡 AJOUT - SOUSTRACTION 3 : La Kommode est déduite du réseau EG
+                    // 💡 SOUSTRACTION 3 : La Kommode est déduite du réseau EG
                     if (strpos(strtolower($label), 'netzwerk erdgeschoss') !== false) {
                         $p = max(0, $p - $p_licht_kommode);
+                    }
+
+                    // 💡 AJOUT - SOUSTRACTION 4 : Le Moniteur Bureau est déduit du PC Bureau
+                    if (strpos(strtolower($label), 'pc bureau') !== false) {
+                        $p = max(0, $p - $p_moniteur_bureau);
                     }
                 }
 
@@ -157,7 +167,7 @@ foreach ($rooms as $name => $data) {
                 }
 
                 $icon = $parts[4] ?? ($defaults[$type] ?? '🔌');
-                
+
                 $display_label = $label;
                 if (array_key_exists($ip, $machine_badges)) {
                     $display_label .= $machine_badges[$ip];
@@ -216,7 +226,7 @@ $autarkie = ($v_haus > 0) ? min(round(($solar_watt / $gesamt_conso) * 100), 100)
         <div style="font-size: 2.8rem; font-weight: 900; line-height: 1; align-items: center; text-align: center;">
             <?= round($gesamt_conso) ?> <span style="font-size: 1rem; color: #444;">Watt</span>
         </div>
-        
+
         <div style="margin-bottom: 15px;">
             <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
                 <div style="font-size: 0.55rem; font-weight: 900; color: #555; text-transform: uppercase;">Abdeckung (Summe Räume)</div>
