@@ -63,13 +63,18 @@ def update_device_cache(ip, power=None, state=None, channel=None, dimmer=None, t
         ch_key = str(channel)
         if power is not None:
             p_val = round(float(power), 2)
+            # ⛔ Sécurité anti-bruit : Si pas de production solaire, on écrase les résidus négatifs
+            if p_val < 0: 
+                p_val = 0.0
             cached_devices[ip]["channels"][ch_key] = p_val
             cached_devices[ip]["channel_states"][ch_key] = "ON" if p_val > 1.5 else "OFF"
         if state is not None:
             cached_devices[ip]["channel_states"][ch_key] = "ON" if str(state).upper() in ["ON", "TRUE", "1"] else "OFF"
 
     if channel is None:
-        if power is not None: cached_devices[ip]["power"] = round(float(power), 2)
+        if power is not None: 
+            p_val = round(float(power), 2)
+            cached_devices[ip]["power"] = 0.0 if p_val < 0 else p_val
         if state is not None: cached_devices[ip]["state"] = "ON" if str(state).upper() in ["ON", "TRUE", "1"] else "OFF"
     else:
         if cached_devices[ip]["channels"]: cached_devices[ip]["power"] = round(sum(cached_devices[ip]["channels"].values()), 2)
@@ -202,16 +207,33 @@ def on_message(client, userdata, msg):
 
             # Extraction et association de l'IP avec le VRAI ID unique résolu
             ip_match = re.search(r'192\.168\.\d+\.\d+', payload_str)
-            if ip_match: 
+            if ip_match:
                 topic_to_ip_map[resolved_id] = ip_match.group(0)
-            
+
+            # 💡 SHIELD IP SHELLY GEN 1 : Si l'IP n'est pas dans le payload, on l'extrait depuis les underscores du topic
+            if "shellies" in topic and "192_168_" in resolved_id:
+                ip_und = re.search(r'192_168_\d+_\d+', resolved_id)
+                if ip_und:
+                    topic_to_ip_map[resolved_id] = ip_und.group(0).replace("_", ".")
+
             ip = topic_to_ip_map.get(resolved_id)
             if ip:
                 # On enregistre la correspondance dans sha_live.json
                 update_device_cache(ip, mqtt_name=resolved_id)
-                
+
+                # 📊 PARSING SPÉCIFIQUE ENTRÉES/SORTIES SHELLY EM (GEN 1)
+                if "shellies" in topic:
+                    try:
+                        if "emeter" in parts and topic.endswith("/power"):
+                            # parts: ['shellies', 'Shelly_EM_Auto_192_168_0_184', 'emeter', '0', 'power']
+                            update_device_cache(ip, power=float(payload_str), channel=parts[3])
+                        elif "relay" in parts:
+                            # parts: ['shellies', 'Shelly_EM_Auto_192_168_0_184', 'relay', '0']
+                            update_device_cache(ip, state=payload_str, channel=parts[3])
+                    except: pass
+
                 # 🚀 1. PRIORITÉ ABSOLUE : Statut Maître via led_enableAll (gère led_enableAll et led_enableAll/get)
-                if "led_enableAll" in topic:
+                elif "led_enableAll" in topic:
                     new_state = "ON" if payload_str in ["1", "ON", "TRUE"] else "OFF"
                     update_device_cache(ip, state=new_state)
                     update_device_cache(ip, state=new_state, channel="1")

@@ -1009,3 +1009,336 @@ Python
     Android TV (Sleep Timer Bloqué) : L'injection dans functions.php écrase le timeout système d'Android (screen_off_timeout 0 et sleep_timeout 0). En cas de firmware constructeur trop agressif, la parade validée est l'envoi d'un signal fantôme keyevent 224 par cron toutes les 15 minutes.
 
     Shelly Dimmer 2 (MQTT Structure) : Identifié sur MQTT Explorer sous le nœud racine inamovible shellies/. Pour l'intégrer proprement, la recommandation est de remplacer son long ID d'usine par un préfixe personnalisé dans son interface développeur (ex: salon_dimmer), puis d'ouvrir la condition du sha_cache_builder.py à "shellies" in topic.
+
+
+    _____
+
+    29.05.26 - Portail 
+
+    C'est une excellente décision. Les pas de vis des boîtiers extérieurs en plastique s'usent très vite, et rouvrir l'étanchéité plusieurs fois augmente le risque d'infiltration d'eau à la prochaine pluie. Faire tout d'un coup en une seule session propre est la meilleure méthode.
+
+Voici la feuille de route complète et définitive pour le jour où tu reçois ton module relais 24V. Tu pourras tout câbler d'une seule traite avant de refermer définitivement le boîtier.
+⚠️ RAPPEL SÉCURITÉ AVANT DE COMMENCER
+
+Coupe impérativement le disjoncteur général du portail au tableau électrique de la maison. Vérifie que l'écran LCD du Marantec est bien éteint avant d'insérer le moindre tournevis.
+🛠️ LE PLAN DE CÂBLAGE UNIQUE (En 4 étapes)
+Étape 1 : Alimentation et Commande du Portail (Le Shelly 1 Gen 3)
+
+    Alimentation 230V : Branche un fil depuis le domino L (Phase de la Marantec) vers la borne L du Shelly, et un fil depuis le domino N (Neutre) vers la borne N du Shelly.
+
+    Commande Contact Sec : Branche un fil de la borne I du Shelly vers la borne B9 de la Marantec, et un fil de la borne O du Shelly vers la borne 8 de la Marantec.
+
+Étape 2 : Alimentation du module Relais 24V (Depuis la Marantec)
+
+Regarde sous l'écran LCD, là où il est écrit "Class 2 Supply 24 Volts". Tu y trouveras les bornes d'alimentation Basse Tension.
+
+    Relie la borne + 24V de la Marantec à la broche DC+ (ou VCC) du petit module relais.
+
+    Relie la borne GND (ou Moins) de la Marantec à la broche DC- (ou GND) du petit module relais.
+    À ce stade, le petit module relais partagera la même alimentation basse tension sécurisée que ton moteur.
+
+Étape 3 : La boucle extérieure du Détecteur Magnétique (Sécurité 24V)
+
+C'est le câble qui part à l'extérieur vers ton portail.
+
+    Prends le fil COM (Commun) de ton détecteur magnétique et connecte-le sur le + 24V de la Marantec (tu peux doubler le fil dans la borne).
+
+    Prends le fil NC (Normalement Fermé) de ton détecteur et connecte-le sur la broche IN (Signal) du module relais.
+
+    Isole le troisième fil (NO) du détecteur avec un petit scotch, il ne sert pas.
+
+    Le Jumper : Sur la carte du relais, positionne le petit cavalier en plastique (jumper) sur la position HIGH.
+    (Comme le capteur est NC, quand le portail est fermé, l'aimant est là, le contact est fermé et il envoie du 24V sur l'entrée IN. Le relais va donc coller quand le portail est fermé).
+
+Étape 4 : La liaison interne Relais ➡️ Shelly (Retour d'état)
+
+Cette partie reste à l'intérieur du boîtier étanche et fait la passerelle vers le Shelly.
+
+    Tire un petit fil depuis la borne L (230V) du Shelly vers la borne à vis COM (généralement la borne centrale du bornier bleu à 3 vis) du module relais.
+
+    Tire un petit fil depuis la borne à vis NO (Normalement Ouvert) du module relais vers la borne SW du Shelly.
+
+📲 AVANT DE REVISSER LE CAPOT (La configuration)
+
+Remets le disjoncteur général en marche. Prends ton smartphone, connecte-toi à l'interface IP du Shelly et valide ces deux réglages :
+
+    Le mode impulsion (Moteur) : Va dans Timer ➡️ Active l'Auto OFF et règle-le sur 0.5 seconde. (Indispensable pour simuler un bouton poussoir).
+
+    Le mode détaché (Capteur) : Va dans Input settings (Paramètres de l'entrée SW) et configure le bouton en mode Detached (Détaché).
+
+Le test ultime : * En bougeant l'aimant devant ton capteur, tu dois entendre un léger "clic" provenant du petit module relais bleu, et tu dois voir le statut changer instantanément sur l'interface graphique du Shelly (le petit trait vertical à côté du bouton), sans que le portail ne se mette à bouger.
+
+    En cliquant sur le bouton ON de l'application, le portail doit s'activer.
+
+Une fois que tout est validé, tu peux ranger proprement les fils, fermer ton boîtier et serrer tes vis une bonne fois pour toutes !
+
+
+____________
+30.05.26
+
+🛠️ ARCHITECTURE DU SYSTÈME DE SAUVEGARDE CROISÉE (SHA & FAMILLE)
+
+Voici le dossier de documentation d'ingénierie finale complet. Les scripts sont factorisés, la sécurité est déportée et les flux d'exécution sont asynchrones.
+1. Script Logique Centralisé : /usr/local/bin/backup_system.sh
+
+Ce script binaire est strictement identique sur S.H.A. et FAMILLE. Il implémente un argument facultatif test pour l'audit à chaud.
+Bash
+
+#!/bin/bash
+# =====================================================================
+# S.H.A. & FAMILLE - SCRIPT DE SAUVEGARDE SYSTÈME + SQL INTERACTIF v1.7
+# =====================================================================
+set -euo pipefail
+
+CONF_FILE="/etc/sha_backup.conf"
+if [[ ! -f "$CONF_FILE" ]]; then
+    echo "❌ Erreur : Fichier de configuration $CONF_FILE introuvable." >&2
+    exit 1
+fi
+
+source "$CONF_FILE"
+START_TIME=$(date +%s)
+
+# Détection du mode d'évaluation rapide
+TEST_MODE=false
+if [[ "${1:-}" == "--test" || "${1:-}" == "test" ]]; then
+    TEST_MODE=true
+fi
+
+log() {
+    local level="$1"
+    local msg="$2"
+    local timestamp
+    timestamp=$(date "+%Y-%m-%d %H:%M:%S")
+    echo "[$timestamp] [$level] $msg" | tee -a "$LOG_FILE"
+}
+
+DATE_NOW=$(date "+%Y-%m-%d")
+DAY_OF_MONTH=$(date "+%d")
+DAY_OF_WEEK=$(date "+%u")
+WEEK_NUMBER=$(date "+%V")
+
+DIR_DAILY="${LOCAL_TARGET}/daily"
+DIR_WEEKLY="${LOCAL_TARGET}/weekly"
+DIR_MONTHLY="${LOCAL_TARGET}/monthly"
+mkdir -p "$DIR_DAILY" "$DIR_WEEKLY" "$DIR_MONTHLY"
+
+ARCHIVE_NAME="sys-backup-${DATE_NOW}.tar.gz"
+if [[ "${TEST_MODE}" == "true" ]]; then
+    ARCHIVE_NAME="sys-backup-test-${DATE_NOW}.tar.gz"
+fi
+ARCHIVE_PATH="${DIR_DAILY}/${ARCHIVE_NAME}"
+
+# --- ÉTAPE 0 : DUMP LOGIQUE MYSQL/MARIADB ---
+MYSQL_TMP_DIR="/var/backups/mysql_staging"
+
+if [[ "${MYSQL_BACKUP_ENABLED}" == "true" ]]; then
+    log "INFO" "🗄️ [0/3] Lancement de l'extraction logique à chaud (mysqldump)..."
+    mkdir -p "$MYSQL_TMP_DIR"
+    chmod 700 "$MYSQL_TMP_DIR"
+    
+    MYSQL_DUMP_FILE="${MYSQL_TMP_DIR}/all_databases_${DATE_NOW}.sql.gz"
+    export MYSQL_PWD="${MYSQL_PASS}"
+    
+    if mysqldump -u "${MYSQL_USER}" --all-databases --single-transaction --quick --routines --triggers 2>/dev/null | gzip > "$MYSQL_DUMP_FILE"; then
+        DUMP_SIZE=$(du -sh "$MYSQL_DUMP_FILE" | cut -f1)
+        log "SUCCESS" "Dump MySQL compressé créé avec succès : ${DUMP_SIZE}"
+    else
+        log "ERROR" "Échec critique du dump MySQL. Poursuite du traitement."
+    fi
+    unset MYSQL_PWD
+fi
+
+# --- ÉTAPE 1 : PIPELINE DE COMPRESSION (TARBALL) ---
+if [[ "${TEST_MODE}" == "true" ]]; then
+    log "WARN" "⚡ [1/3] MODE TEST ACTIF : Extraction restreinte au dump et fichiers d'états..."
+    TAR_TARGETS="/etc/hosts /etc/hostname"
+    if [[ -d "$MYSQL_TMP_DIR" ]]; then
+        TAR_TARGETS="${TAR_TARGETS} ${MYSQL_TMP_DIR}"
+    fi
+    # shellcheck disable=SC2086
+    tar -czf "$ARCHIVE_PATH" $TAR_TARGETS 2>/dev/null || true
+    BACKUP_SIZE=$(du -sh "$ARCHIVE_PATH" | cut -f1)
+    log "SUCCESS" "Archive de test isolée : ${ARCHIVE_PATH} (${BACKUP_SIZE})"
+else
+    log "INFO" "📦 [1/3] Compression globale de la racine (/) avec exclusions industrielles..."
+    TAR_EXCLUDES=""
+    for exc in $EXCLUDES; do
+        TAR_EXCLUDES="${TAR_EXCLUDES} --exclude=${exc}"
+    done
+    # shellcheck disable=SC2086
+    if tar -czf "$ARCHIVE_PATH" $TAR_EXCLUDES / 2>/dev/null || true; then
+        ROOT_SIZE=$(du -sh / 2>/dev/null | cut -f1 || echo "N/A")
+        BACKUP_SIZE=$(du -sh "$ARCHIVE_PATH" | cut -f1)
+        log "SUCCESS" "Archive système créée : ${ARCHIVE_PATH} (Racine: ${ROOT_SIZE} -> Target: ${BACKUP_SIZE})"
+    else
+        log "ERROR" "Rupture partielle durant l'exécution de la commande tar."
+        exit 1
+    fi
+fi
+
+# Purge immédiate de la zone de staging MySQL (Libération espace disque)
+if [[ -d "$MYSQL_TMP_DIR" ]]; then
+    rm -rf "$MYSQL_TMP_DIR"
+fi
+
+# --- ÉTAPE 2 : MACHINE À ÉTATS DE RÉTENTION (ROTATION TEMPORELLE) ---
+log "INFO" "🔄 [2/3] Traitement de la taxonomie temporelle et purge des deltas obsolètes..."
+FIND_PATTERN="sys-backup-*.tar.gz"
+if [[ "${TEST_MODE}" == "true" ]]; then
+    FIND_PATTERN="sys-backup-test-*.tar.gz"
+fi
+
+find "$DIR_DAILY" -name "$FIND_PATTERN" -type f -printf '%T@ %p\n' \
+    | sort -n | head -n -"${RETENTION_DAILY}" | cut -d' ' -f2- | xargs rm -f
+
+if [[ "${TEST_MODE}" == "false" ]]; then
+    # Sauvegarde Bi-hebdomadaire (Semaines ISO paires, le Dimanche)
+    if [[ "$DAY_OF_WEEK" -eq 7 ]] && [[ $((10#$WEEK_NUMBER % 2)) -eq 0 ]]; then
+        log "INFO" "Règle de Quinzaine validée. Duplication du snapshot..."
+        cp "$ARCHIVE_PATH" "${DIR_WEEKLY}/sys-backup-quinzaine-${DATE_NOW}.tar.gz"
+        find "$DIR_WEEKLY" -name "sys-backup-quinzaine-*.tar.gz" -type f -printf '%T@ %p\n' \
+            | sort -n | head -n -1 | cut -d' ' -f2- | xargs rm -f
+    fi
+
+    # Sauvegarde Mensuelle (Le 1er jour du mois strict)
+    if [[ "$DAY_OF_MONTH" -eq "01" ]]; then
+        log "INFO" "Premier jour du mois détecté. Duplication du snapshot mensuel..."
+        cp "$ARCHIVE_PATH" "${DIR_MONTHLY}/sys-backup-mensuel-${DATE_NOW}.tar.gz"
+        find "$DIR_MONTHLY" -name "sys-backup-mensuel-*.tar.gz" -type f -printf '%T@ %p\n' \
+            | sort -n | head -n -1 | cut -d' ' -f2- | xargs rm -f
+    fi
+fi
+
+# --- ÉTAPE 3 : TRANSMISSION CROSSED-SERVER (RSYNC DELTA) ---
+log "INFO" "🚀 [3/3] Synchronisation différentielle sécurisée vers ${REMOTE_IP}..."
+
+export SSHPASS="${MYSQL_PASS}"
+
+# Structuration forcée de la racine de stockage à distance via SSH non-interactif
+sshpass -e ssh -p "${REMOTE_PORT}" -o StrictHostKeyChecking=no "${REMOTE_USER}@${REMOTE_IP}" "mkdir -p ${REMOTE_TARGET}"
+
+# Synchronisation atomique du contenu
+if sshpass -e rsync -avz -e "ssh -p ${REMOTE_PORT} -o StrictHostKeyChecking=no" --delete "$LOCAL_TARGET/" "${REMOTE_USER}@${REMOTE_IP}:${REMOTE_TARGET}/" >> "$LOG_FILE" 2>&1; then
+    END_TIME=$(date +%s)
+    EXEC_TIME=$((END_TIME - START_TIME))
+    log "SUCCESS" "Exécution globale clôturée avec succès. Durée totale : ${EXEC_TIME} secondes."
+else
+    log "ERROR" "Échec critique de l'interfaçage réseau via rsync."
+    unset SSHPASS
+    exit 1
+fi
+
+unset SSHPASS
+
+2. Environnement d'infrastructure sur S.H.A. (192.168.0.10)
+Fichier /etc/sha_backup.conf
+Ini, TOML
+
+# --- CONFIGURATION LOCALE (S.H.A.) ---
+LOCAL_TARGET="/home/NVM1/backup_local"
+EXCLUDES="/proc/* /sys/* /dev/* /run/* /tmp/* /lost+found /media/* /mnt/* /home/NVM1/* /var/cache/* /var/lib/apt/lists/* /var/tmp/* /var/log/* /root/.vscode-server/* /root/.cache/* /home/palworld/* /var/lib/mysql/*"
+
+# --- CONFIGURATION DISTANTE (FAMILLE) ---
+REMOTE_IP="192.168.0.11"
+REMOTE_USER="root"
+REMOTE_PORT="22"
+REMOTE_TARGET="/home/Tera8/backup_remote_sha"
+
+# --- CONFIGURATION LOGS & RÉTENTION ---
+LOG_FILE="/var/log/sha_backup.log"
+RETENTION_DAILY=5
+
+# --- SÉCURITÉ INTERNE CREDENTIALS ---
+MYSQL_BACKUP_ENABLED=true
+MYSQL_USER="root"
+MYSQL_PASS="VotreMotDePasseUniqueEtSecurise"
+
+Planificateur système (sudo crontab -e)
+Code snippet
+
+0 2 * * * /usr/local/bin/backup_system.sh > /var/log/sha_backup_cron.log 2>&1
+
+3. Environnement d'infrastructure sur FAMILLE (192.168.0.11)
+Fichier /etc/sha_backup.conf
+Ini, TOML
+
+# --- CONFIGURATION LOCALE (FAMILLE) ---
+LOCAL_TARGET="/home/Tera8/backup_local"
+EXCLUDES="/proc/* /sys/* /dev/* /run/* /tmp/* /lost+found /media/* /mnt/* /home/* /var/cache/* /var/lib/apt/lists/* /var/tmp/* /var/log/* /var/lib/mysql/*"
+
+# --- CONFIGURATION DISTANTE (S.H.A.) ---
+REMOTE_IP="192.168.0.10"
+REMOTE_USER="root"
+REMOTE_PORT="22"
+REMOTE_TARGET="/home/NVM1/backup_remote_famille"
+
+# --- CONFIGURATION LOGS & RÉTENTION ---
+LOG_FILE="/var/log/sha_backup.log"
+RETENTION_DAILY=5
+
+# --- SÉCURITÉ INTERNE CREDENTIALS ---
+MYSQL_BACKUP_ENABLED=true
+MYSQL_USER="root"
+MYSQL_PASS="VotreMotDePasseUniqueEtSecurise"
+
+Planificateur système (sudo crontab -e)
+Code snippet
+
+0 4 * * * /usr/local/bin/backup_system.sh > /var/log/sha_backup_cron.log 2>&1
+
+4. Section d'Avenant pour INSTALL.md (Hors dépôt Git)
+
+Incorporez ce bloc à la fin de votre fichier /var/www/html/sha/INSTALL.md pour fixer l'état d'exploitation historique:  
+Markdown
+
+## 💾 8. Supervision Réseau & Sauvegardes Système Croisées
+
+L'infrastructure applique une tolérance aux pannes matérielles par réplication croisée non-interactive (Zéro interaction humaine) entre S.H.A. et le NAS FAMILLE.
+
+### Dépendances OS requises
+```bash
+sudo apt update && sudo apt install -y sshpass du
+
+Topologie du Stockage
+
+    S.H.A. (Local) : /home/NVM1/backup_local/ (Montage permanent NVMe Ext4, options noatime).
+
+    S.H.A. (Dépôt distant reçu) : /home/NVM1/backup_remote_famille/.
+
+    FAMILLE (Local) : /home/Tera8/backup_local/ (Disque mécanique RAID/HDD).
+
+    FAMILLE (Dépôt distant reçu) : /home/Tera8/backup_remote_sha/.
+
+Matrice de Rétention et Fenêtres de Tir
+
+    Les scripts s'exécutent de manière asynchrone pour lisser la charge réseau :
+
+        SHA : Déclenchement à 02:00 AM.
+
+        FAMILLE : Déclenchement à 04:00 AM.
+
+    Rotation : 5 snapshots quotidiens (daily), 1 snapshot bi-hebdomadaire (weekly - semaines ISO paires), 1 snapshot mensuel (monthly).
+
+    Extraction SQL : Les bases de données sont extraites logiquement via mysqldump de manière non bloquante (--single-transaction), compressées à la volée, intégrées temporairement dans le tarball système, puis nettoyées de la partition racine.
+
+
+---
+
+### Points clés de l'implémentation
+* **Généricité matérielle :** Le même script gère les deux nœuds d'infrastructure. L'asymétrie fonctionnelle (Exclusion de `/home` sur le NAS contre inclusion sélective sur S.H.A.) est pilotée uniquement par l'abstraction du fichier local `/etc/sha_backup.conf`.
+* **Sécurisation des secrets par découplage :** Conformément à la règle de sécurité, aucune clé ou clé d'accès n'est écrite en dur. Le mot de passe système est stocké dans le fichier `.conf` (protégé par le `.htaccess` et les droits Unix `600`)[cite: 10, 497]. Il est injecté de manière volatile dans les variables d'environnement (`MYSQL_PWD` et `SSHPASS`) puis détruit immédiatement via `unset` en fin d'exécution.
+* **Éradication de l'I/O inutile :** L'exclusion totale des fichiers de base de données à chaud (`/var/lib/mysql/*`), des logs (`/var/log/*`) et des métadonnées de packages réduit le poids des archives de plus de 80 %, préservant la durée de vie des cellules de stockage du NVMe.
+
+_____ extra 
+ ### 📋 Nomenclature d'Architecture des Archives Indépendantes
+
+Pour interdire toute collision ou confusion visuelle au sein des dossiers distants (`backup_remote_*`), les fichiers respectent désormais un typage strict préfixé par l'identité physique de la machine émettrice (`$(hostname)`) :
+
+- **Format Quotidien Standard :** `[hostname]-sys-backup-YYYY-MM-DD.tar.gz`
+- **Format Test Rapide :** `[hostname]-sys-backup-test-YYYY-MM-DD.tar.gz`
+- **Format Bi-hebdomadaire :** `[hostname]-sys-backup-quinzaine-YYYY-MM-DD.tar.gz`
+- **Format Mensuel Restreint :** `[hostname]-sys-backup-mensuel-YYYY-MM-DD.tar.gz`
+
+### Isolation des purges de rétention
+Le moteur de nettoyage (`find`) cible exclusivement le pattern contenant le nom de la machine locale. Cela permet de purger de manière étanche les archives obsolètes sans risquer d'altérer ou de corrompre les fichiers de réplication croisée issus de l'autre machine co-hébergée sur le même volume physique de stockage.
