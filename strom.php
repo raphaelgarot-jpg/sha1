@@ -7,7 +7,7 @@ $sys = $rooms['System'];
 $defaults = $rooms['Defaults'] ?? [];
 
 // 2. LECTURE DU CACHE RAM (Ultra-rapide avec détection d'erreur)
-$cache_file = '/dev/shm/sha_live.json';
+$cache_file = '/var/www/html/sha/data/sha_live.json';
 $tas_cache = [];
 
 if (!file_exists($cache_file) || filesize($cache_file) === 0) {
@@ -33,8 +33,8 @@ $tas_cache = $live_data['devices'];
 // --- RECHERCHE DES ÉTATS ÉLECTROMÉNAGERS ---
 $machine_badges = ['192.168.0.54' => '', '192.168.0.49' => ''];
 $monitor_files = [
-    '192.168.0.54' => '/dev/shm/sha_monitor_state_wm.json',
-    '192.168.0.49' => '/dev/shm/sha_monitor_state_gs.json'
+    '192.168.0.54' => '/var/www/html/sha/data/sha_monitor_state_wm.json',
+    '192.168.0.49' => '/var/www/html/sha/data/sha_monitor_state_gs.json'
 ];
 
 foreach ($monitor_files as $ip => $file) {

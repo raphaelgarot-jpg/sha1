@@ -9,7 +9,7 @@
 function getSmartMeter($ip) {
     if (empty($ip)) return 0;
 
-    $cache_file = '/dev/shm/sha_live.json';
+    $cache_file = '/var/www/html/sha/data/sha_live.json';
     if (!file_exists($cache_file)) return 0;
 
     $live_data = json_decode(@file_get_contents($cache_file), true);
@@ -67,7 +67,8 @@ if (!function_exists('handle_device_action')) {
             if ($action === 'dimmer') {
                 // 💡 EXTRACTION DYNAMIQUE DU NOM MQTT DEPUIS LE CACHE RAM
                 $mqtt_name = "";
-                $cache_file = '/dev/shm/sha_live.json';
+                $cache_file = '/var/www/html/sha/data/sha_live.json';
+                
                 if (file_exists($cache_file)) {
                     $live_data = json_decode(@file_get_contents($cache_file), true);
                     $mqtt_name = $live_data['devices'][$ip]['mqtt_name'] ?? "";
@@ -113,7 +114,7 @@ if (!function_exists('handle_device_action')) {
             
             // --- 💡 EXTRACTION DU NOM MQTT DEPUIS LE NOUVEAU CACHE PYTHON ---
             $mqtt_name = "";
-            $cache_file = '/dev/shm/sha_live.json';
+            $cache_file = '/var/www/html/sha/data/sha_live.json';
             if (file_exists($cache_file)) {
                 $live_data = json_decode(@file_get_contents($cache_file), true);
                 // On récupère la clé 'mqtt_name' magiquement créée par le script Python
@@ -258,7 +259,7 @@ if (!function_exists('handle_device_action')) {
 /**
  * Récupère le cache live de la RAM S.H.A.
  */
-function get_sha_live_cache($cache_path = '/dev/shm/sha_live.json') {
+function get_sha_live_cache($cache_path = '/var/www/html/sha/data/sha_live.json') {
     if (file_exists($cache_path) && filesize($cache_path) > 0) {
         return json_decode(@file_get_contents($cache_path), true) ?? [];
     }

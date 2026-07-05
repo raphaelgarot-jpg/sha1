@@ -10,7 +10,7 @@ import paho.mqtt.client as mqtt
 # --- CHEMINS LOGIQUES SHA ---
 APP_CONF = "/var/www/html/sha/config/app.conf"
 HOME_CONF = "/var/www/html/sha/config/home_structure.conf"
-RAM_FILE = "/dev/shm/sha_live.json"
+RAM_FILE = "/var/www/html/sha/data/sha_live.json"
 MAX_AGE_SECONDS = 600
 
 cached_devices = {}

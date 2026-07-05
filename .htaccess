@@ -32,10 +32,16 @@ AddType application/manifest+json .json
     Header set X-Content-Type-Options "nosniff"
 </IfModule>
 
-# 6. Restriction par IP (Optionnel mais recommandé si tu n'accèdes qu'en local)
-# Note : C'est plus efficace que ton test PHP dans header.php car ça bloque AVANT l'exécution.
- ErrorDocument 403 "<h1>ACCES RESTRAINT S.H.A.</h1>"
- Order Deny,Allow
- Deny from all
- Allow from 192.168.0.0/16
- Allow from 127.0.0.1
+# 6. Restriction par IP (Adaptée pour Nginx Proxy Manager)
+ErrorDocument 403 "<h1>ACCES RESTRAINT S.H.A.</h1>"
+
+# On vérifie si la vraie IP d'origine transmise par le proxy commence bien par 192.168.
+SetEnvIf X-Real-IP "^192\.168\." local_access
+SetEnvIf X-Forwarded-For "^192\.168\." local_access
+
+Order Deny,Allow
+Deny from all
+Allow from 192.168.0.0/16
+Allow from 127.0.0.1
+# On autorise l'accès si la variable "local_access" a été validée juste au-dessus
+Allow from env=local_access

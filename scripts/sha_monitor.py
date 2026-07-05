@@ -7,7 +7,7 @@ from pywebpush import webpush, WebPushException
 
 # --- CHEMINS LOGIQUES SHA ---
 APP_CONF = "/var/www/html/sha/config/app.conf"
-RAM_LIVE_FILE = "/dev/shm/sha_live.json"
+RAM_LIVE_FILE = "/var/www/html/sha/data/sha_live.json"
 SUB_FILE = "/var/www/html/sha/config/devices.json"
 PEM_FILE = "/var/www/html/sha/config/private_key.pem"
 
@@ -25,7 +25,7 @@ for section, key_name, label, emoji in [
     ('MONITORING_GESCHIRRSPUEHLER', 'gs', 'Geschirrspüler', '🍽️')
 ]:
     if config.has_section(section) and config.getboolean(section, 'enabled', fallback=False):
-        state_file = f"/dev/shm/sha_monitor_state_{key_name}.json"
+        state_file = f"/var/www/html/sha/data/sha_monitor_state_{key_name}.json"
         
         # Valeurs par défaut
         m_data = {
