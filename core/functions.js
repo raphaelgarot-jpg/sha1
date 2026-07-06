@@ -291,7 +291,28 @@ function sendOBKDimmer(ip, action, value) {
         console.error('Erreur lors de l\'envoi de la gradation S.H.A. :', err);
     });
 }
-
+/* =====================================================================
+   🐦‍🔥 GESTIONNAIRE DYNAMIQUE DU GLOSSAIRE A.S.H.E.S.
+   ===================================================================== */
+document.addEventListener("click", function(e) {
+    // On cherche si le clic s'est fait sur le mot A.S.H.E.S.
+    const glossary = e.target.closest('.ashes-glossary');
+    
+    if (glossary) {
+        e.stopPropagation(); // Empêche le clic de se propager au reste du document
+        
+        // On ferme les autres infobulles si jamais il y en a d'ouvertes
+        document.querySelectorAll('.ashes-glossary').forEach(el => {
+            if (el !== glossary) el.classList.remove('active');
+        });
+        
+        // On bascule l'état de l'infobulle cliquée
+        glossary.classList.toggle('active');
+    } else {
+        // Si on clique n'importe où ailleurs, on ferme toutes les infobulles
+        document.querySelectorAll('.ashes-glossary').forEach(el => el.classList.remove('active'));
+    }
+});
 // Amorçage des scripts globaux
 document.addEventListener("DOMContentLoaded", initDeviceToggles);
 document.addEventListener("DOMContentLoaded", startAutoRefresh);

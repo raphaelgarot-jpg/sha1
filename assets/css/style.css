@@ -510,3 +510,66 @@ body {
 
 /* --- ARCHITECTURE MODIFICATIONS --- */
 .room-card-wide { grid-column: span 2; }
+
+/* =====================================================================
+   🐦‍🔥 EXPANSION GLOSSAIRE A.S.H.E.S. (Hover PC + Click Mobile)
+   ===================================================================== */
+.ashes-glossary {
+    position: relative;
+    cursor: help;
+    display: inline-block;
+    text-decoration: underline dotted rgba(255, 145, 0, 0.4);
+    text-underline-offset: 4px;
+}
+
+/* L'infobulle générique */
+.ashes-glossary::after {
+    content: "Advanced Smart Home Energy & Supervision";
+    position: absolute;
+    background: #160e0d;
+    border: 1px solid var(--orange);
+    color: #f7f5f5;
+    padding: 8px 14px;
+    border-radius: var(--radius-sm);
+    font-size: 0.75rem;
+    font-weight: 700;
+    font-family: var(--font-main);
+    letter-spacing: 0.5px;
+    text-transform: none;
+    white-space: nowrap;
+    box-shadow: 0 8px 25px rgba(0,0,0,0.8), 0 0 15px rgba(255, 145, 0, 0.15);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s cubic-bezier(0.165, 0.84, 0.44, 1), transform 0.2s cubic-bezier(0.165, 0.84, 0.44, 1);
+    z-index: 99999;
+    text-shadow: none;
+}
+
+/* 🟩 HEADER : Positionnement centré en bas */
+.header-title .ashes-glossary::after {
+    left: 50%;
+    top: 140%;
+    transform: translateX(-50%) translateY(10px);
+}
+.header-title .ashes-glossary:hover::after, 
+.header-title .ashes-glossary.active::after {
+    transform: translateX(-50%) translateY(0);
+}
+
+/* 🟩 FOOTER : Aligné à gauche (left: 0) pour s'étendre vers la droite sans déborder de l'écran */
+.footer-left .ashes-glossary::after {
+    left: 0;
+    bottom: 140%;
+    transform: translateY(-10px);
+}
+.footer-left .ashes-glossary:hover::after, 
+.footer-left .ashes-glossary.active::after {
+    transform: translateY(0);
+}
+
+/* Déclencheur global d'opacité */
+.ashes-glossary:hover::after,
+.ashes-glossary.active::after {
+    opacity: 1;
+    pointer-events: auto;
+}

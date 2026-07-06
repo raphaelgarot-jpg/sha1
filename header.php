@@ -26,7 +26,7 @@ $rooms = parse_ini_file($config_path, true);
     <link rel="apple-touch-icon" href="/assets/img/favicon.png">
     <link rel="apple-touch-icon-precomposed" href="/assets/img/favicon.png">
     <link rel="manifest" href="/sha/manifest.json">
-    <title>A.S.H.E.S. // Core Engine</title>
+    <title>A.S.H.E.S. v0.7</title>
 
     <link rel="icon" type="image/png" href="/assets/img/favicon.png">
     <link rel="stylesheet" href="assets/css/style.css?v=<?php echo time(); ?>">
@@ -71,8 +71,8 @@ $rooms = parse_ini_file($config_path, true);
 <body>
 
 <header class="sha-header">
-    <div class="sha-header-spacer"></div>
-    <div class="header-title">A.S.H.E.S. v0.7</div>
+    <div style="width: 35px;"></div>
+    <div class="header-title"><span class="ashes-glossary">A.S.H.E.S.</span> v0.7</div>
     <div class="hamburger-btn" onclick="toggleSHA()">
         <span></span><span></span><span></span>
     </div>
