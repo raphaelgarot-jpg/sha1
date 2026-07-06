@@ -1,4 +1,4 @@
-#!/usr/bin/python2.7
+#!/usr/bin/env python3
 
 import socket
 import sys
@@ -103,4 +103,4 @@ print ("message:", MESSAGE)
 
 sock = socket.socket(socket.AF_INET, # Internet
 socket.SOCK_DGRAM) # UDP
-sock.sendto(MESSAGE, (UDP_IP, UDP_PORT))
+sock.sendto(MESSAGE.encode(), (UDP_IP, UDP_PORT))

@@ -1,5 +1,4 @@
 <?php
-// 🔒 SÉCURISATION DE LA PRODUCTION (Fin de la phase de débogage MQTT)
 error_reporting(0);
 ini_set('display_errors', 0);
 ini_set('display_startup_errors', 0);
@@ -25,12 +24,12 @@ $rooms = parse_ini_file($config_path, true);
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="S.H.A. 2026">
-    <link rel="apple-touch-icon" href="/sha/assets/img/favicon.png">
-    <link rel="apple-touch-icon-precomposed" href="/sha/assets/img/favicon.png">
+    <link rel="apple-touch-icon" href="/assets/img/favicon.png">
+    <link rel="apple-touch-icon-precomposed" href="/assets/img/favicon.png">
     <link rel="manifest" href="/sha/manifest.json">
     <title>S.H.A. 2026</title>
 
-    <link rel="icon" type="image/png" href="assets/img/favicon.png">
+    <link rel="icon" type="image/png" href="/assets/img/favicon.png">
     <link rel="stylesheet" href="assets/css/style.css?v=<?php echo time(); ?>">
 
     <script src="core/functions.js"></script>
