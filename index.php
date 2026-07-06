@@ -3,19 +3,18 @@ include("header.php");
 ?>
 
 <div class="nav-tiles">
-    
     <a href="steckdose.php" class="tile"><span class="tile-icon">🔌</span><span class="tile-label">Dosen</span></a>
     <a href="rolladen.php" class="tile"><span class="tile-icon">🪟</span><span class="tile-label">Rollladen</span></a>
     <a href="weather.php"  class="tile"><span class="tile-icon">☁️</span><span class="tile-label">Wetter</span></a>
     <a href="heiz.php"     class="tile"><span class="tile-icon">🔥</span><span class="tile-label">Heizung</span></a>
-    <a href="strom.php" class="tile"><span class="tile-icon">⚡</span><span class="tile-label">Strom</span></a>
+    <a href="strom.php"    class="tile"><span class="tile-icon">⚡</span><span class="tile-label">Strom</span></a>
     <a href="router.php"   class="tile"><span class="tile-icon">🌐</span><span class="tile-label">Netzwerk</span></a>
     <a href="info.php"     class="tile"><span class="tile-icon">ℹ️</span><span class="tile-label">Info</span></a>
 </div>
 
 <div class="container">
     <div style="margin-bottom: 30px;">
-        <h2 style="font-size: 0.8rem; letter-spacing: 2px; color: #444; text-transform: uppercase;">Tableau de bord / Pièces</h2>
+        <h2 style="font-size: 0.8rem; letter-spacing: 2px; color: var(--text-ash); text-transform: uppercase; opacity: 0.8;">Tableau de bord / Pièces</h2>
     </div>
 
     <div class="room-grid">
@@ -35,13 +34,13 @@ include("header.php");
                     </div>
                     
                     <div class="room-badges">
-                        <span class="badge badge-green">🌡️ <?= $temp ?>°</span>
+                        <span class="badge" style="background: rgba(0, 230, 118, 0.08); color: var(--green); border: 1px solid rgba(0, 230, 118, 0.2);">🌡️ <?= $temp ?>°</span>
                     </div>
                 </div>
 
                 <div class="room-body" style="padding: 20px; min-height: 100px; display: flex; align-items: center; justify-content: center;">
-                    <div style="text-align: center; color: #333;">
-                        <div style="font-size: 0.6rem; font-weight: 900; text-transform: uppercase; letter-spacing: 1px;">
+                    <div style="text-align: center; color: var(--text-ash);">
+                        <div style="font-size: 0.6rem; font-weight: 900; text-transform: uppercase; letter-spacing: 1px; opacity: 0.7;">
                             <?php 
                                 if (!empty($data['devices'])) {
                                     echo count($data['devices']) . " Appareils configurés";

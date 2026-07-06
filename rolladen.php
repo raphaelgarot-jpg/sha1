@@ -20,8 +20,10 @@ foreach ($rooms as $name => $data) {
 <div class="container">
 
     <?php if (!empty($shutter_rooms)): ?>
-    <div class="room-card" style="margin-bottom: 25px; border: 1px solid #ff980066;border-top: 3px solid #ff9800; padding: 20px; display: flex; flex-direction: column; gap: 15px;">
-        <div class="room-title" style="justify-content: center; color: #ff9800;"><span>🪟</span> ZENTRALSTEUERUNG</div>
+    <div class="room-card" style="margin-bottom: 25px; border: 1px solid rgba(255, 145, 0, 0.25); border-top: 3px solid var(--orange); padding: 20px; display: flex; flex-direction: column; gap: 15px; box-shadow: 0 8px 25px rgba(255, 145, 0, 0.05);">
+        <div class="room-title" style="justify-content: center; color: var(--orange); text-shadow: 0 0 10px rgba(255, 145, 0, 0.15);">
+            <span>🪟</span> ZENTRALSTEUERUNG
+        </div>
         <div style="display: flex; gap: 15px; justify-content: center;">
             <button onclick="sendRoll('all', '1', 'off', this)" class="toggle-btn btn-on" style="min-width: 120px; padding: 10px; font-weight: bold; text-align: center;">▲ AUF</button>
             <button onclick="sendRoll('all', '1', 'on', this)" class="toggle-btn btn-off" style="min-width: 120px; padding: 10px; font-weight: bold; text-align: center;">▼ ZU</button>
@@ -53,8 +55,8 @@ foreach ($rooms as $name => $data) {
                         if(count($parts) < 2) continue;
                         $ip = $parts[0]; $relay = $parts[1]; $label = $parts[2] ?? 'Rollo';
                     ?>
-                        <div style="padding: 12px 20px; display: flex; align-items: center; justify-content: space-between; <?= $shutter !== end($shutters) ? 'border-bottom: 1px solid #1a1a1a;' : '' ?>">
-                            <div style="font-weight: 900; font-size: 0.85rem; padding-right: 15px; color: #eee;"><?= $label ?></div>
+                        <div style="padding: 12px 20px; display: flex; align-items: center; justify-content: space-between; <?= $shutter !== end($shutters) ? 'border-bottom: 1px solid var(--border);' : '' ?>">
+                            <div style="font-weight: 900; font-size: 0.85rem; padding-right: 15px; color: #fcfafa;"><?= $label ?></div>
                             <div style="display: flex; gap: 10px;">
                                 <button onclick="sendRoll('<?= $ip ?>', '<?= $relay ?>', 'off', this)" class="toggle-btn btn-on" style="min-width: 80px; padding: 6px 12px; font-size: 0.8rem; font-weight: bold; text-align: center;">▲ AUF</button>
                                 <button onclick="sendRoll('<?= $ip ?>', '<?= $relay ?>', 'on', this)" class="toggle-btn btn-off" style="min-width: 80px; padding: 6px 12px; font-size: 0.8rem; font-weight: bold; text-align: center;">▼ ZU</button>

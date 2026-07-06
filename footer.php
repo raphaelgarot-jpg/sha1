@@ -2,7 +2,7 @@
 <?php
 // Lecture du fichier de version généré par les hooks Git
 $version_path = __DIR__ . '/data/version.txt'; 
-$display_version = "V0.6.x"; // Fallback de secours
+$display_version = "v0.7.x"; // Nouveau fallback de secours pour la branche Ashes
 
 if (file_exists($version_path)) {
     $content = trim(file_get_contents($version_path));
@@ -15,7 +15,7 @@ if (file_exists($version_path)) {
 <footer class="sha-footer">
     <div class="footer-container">
         <div class="footer-left">
-            S.H.A. 🐾 <span>2026</span> 
+            A.S.H.E.S. 🐦‍🔥 <span>2026</span> 
         </div>
         
         <div class="footer-right">

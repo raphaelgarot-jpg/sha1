@@ -15,7 +15,6 @@ if (!file_exists($config_path)) {
 $rooms = parse_ini_file($config_path, true);
 
 ?>
-
 <!DOCTYPE html>
 <html lang="fr">
 <head>
@@ -23,11 +22,11 @@ $rooms = parse_ini_file($config_path, true);
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="S.H.A. 2026">
+    <meta name="apple-mobile-web-app-title" content="A.S.H.E.S.">
     <link rel="apple-touch-icon" href="/assets/img/favicon.png">
     <link rel="apple-touch-icon-precomposed" href="/assets/img/favicon.png">
     <link rel="manifest" href="/sha/manifest.json">
-    <title>S.H.A. 2026</title>
+    <title>A.S.H.E.S. // Core Engine</title>
 
     <link rel="icon" type="image/png" href="/assets/img/favicon.png">
     <link rel="stylesheet" href="assets/css/style.css?v=<?php echo time(); ?>">
@@ -72,8 +71,8 @@ $rooms = parse_ini_file($config_path, true);
 <body>
 
 <header class="sha-header">
-    <div style="width: 35px;"></div>
-    <div class="header-title">S.H.A. 2026</div>
+    <div class="sha-header-spacer"></div>
+    <div class="header-title">A.S.H.E.S. v0.7</div>
     <div class="hamburger-btn" onclick="toggleSHA()">
         <span></span><span></span><span></span>
     </div>
