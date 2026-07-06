@@ -112,6 +112,15 @@ if (!function_exists('handle_device_action')) {
                 // Étape C : On force le canal 0 (couleur) à 0 à chaque changement
                 @exec("mosquitto_pub $auth_part -t '{$mqtt_name}/0/set' -m '0' > /dev/null 2>&1");
             }
+                // 💾 [A.S.H.E.S. FEATURE] SAUVEGARDE PERSISTANTE LOCALE DU DIMMER
+                            $local_states_file = dirname($cache_file) . '/dimmer_states.json';
+                            $local_states = [];
+                            if (file_exists($local_states_file)) {
+                                $local_states = json_decode(@file_get_contents($local_states_file), true) ?? [];
+                            }
+                            // On associe l'intensité à l'IP de l'appareil
+                            $local_states[$ip] = intval($value);
+                            @file_put_contents($local_states_file, json_encode($local_states));
 
     echo json_encode(['success' => true, 'message' => 'Intensité et état appliqués']);
     exit;
@@ -299,11 +308,38 @@ if (!function_exists('handle_device_action')) {
 /**
  * Récupère le cache live de la RAM S.H.A.
  */
+/**
+ * Récupère le cache live de la RAM S.H.A. avec fusion des Dimmer de secours
+ */
 function get_sha_live_cache($cache_path = '/var/www/html/sha/data/sha_live.json') {
+    $live_data = [];
+    
+    // 1. Lecture du cache Python standard
     if (file_exists($cache_path) && filesize($cache_path) > 0) {
-        return json_decode(@file_get_contents($cache_path), true) ?? [];
+        $live_data = json_decode(@file_get_contents($cache_path), true) ?? [];
     }
-    return [];
+    
+    // 2. 🐦‍🔥 FUSION DES ÉTATS PERSISTANTS DES DIMMERS A.S.H.E.S.
+    $local_states_file = dirname($cache_path) . '/dimmer_states.json';
+    if (file_exists($local_states_file)) {
+        $local_states = json_decode(@file_get_contents($local_states_file), true) ?? [];
+        foreach ($local_states as $device_ip => $brightness) {
+            if (isset($live_data['devices'][$device_ip])) {
+                // Si l'appareil existe déjà dans le cache live, on lui ajoute la clé brightness
+                $live_data['devices'][$device_ip]['brightness'] = $brightness;
+            } else {
+                // S'il n'est pas encore apparu, on l'initialise proprement
+                $live_data['devices'][$device_ip] = [
+                    'mqtt_name' => '',
+                    'power' => 0,
+                    'brightness' => $brightness,
+                    'last_seen' => time()
+                ];
+            }
+        }
+    }
+    
+    return $live_data;
 }
 
 if (!function_exists('send_wake_on_lan')) {

@@ -28,7 +28,7 @@ if (is_array($rooms)) {
                 continue;
             }
 
-            // 💡 CORRECTION : Placé ici dans la boucle pour que $parts existe !
+            // 💡 CORRECTION HISTORIQUE : Extraction sécurisée du nom MQTT si disponible
             $mqtt_name = (isset($parts[5]) && trim($parts[5]) !== 'no_relay' && trim($parts[5]) !== 'dimmable') ? trim($parts[5]) : "";
 
             if (in_array($type, ['socket', 'light', 'light_p', 'pc', 'android'])) {
@@ -65,8 +65,15 @@ if (is_array($rooms)) {
                 if (!$is_offline && $current_state === "ON") $room_active_count++;
                 $icon = $parts[4] ?? ($defaults[$type === 'light_p' ? 'light' : $type] ?? '💡');
 
-                // Lecture de la vraie valeur de gradation
-                $current_dimmer = isset($dev_data['dimmer']) ? intval($dev_data['dimmer']) : 100;
+                // 🟩 [A.S.H.E.S. MOD] COUPLAGE PERSISTANT DU DIMMER
+                // On cherche d'abord 'brightness' (sauvegarde PHP locale), puis 'dimmer' (Python MQTT), fallback à 100
+                if (isset($dev_data['brightness'])) {
+                    $current_dimmer = intval($dev_data['brightness']);
+                } elseif (isset($dev_data['dimmer'])) {
+                    $current_dimmer = intval($dev_data['dimmer']);
+                } else {
+                    $current_dimmer = 100;
+                }
 
                 $dev_list[] = [
                     'type' => $type, 'label' => $label, 'ip' => $ip, 'relay' => $relay_or_mac,
@@ -105,7 +112,6 @@ if (is_array($rooms)) {
             }
 
             $rendered_cards_html .= '          </span></span>';
-            // 💡 AJOUT : data-dimmable et d['mqtt_name'] corrigé pour le bouton
             $rendered_cards_html .= '          <button class="toggle-btn ' . ($is_on ? 'btn-on' : 'btn-off') . '" data-type="' . $d['type'] . '" data-ip="' . $d['ip'] . '" data-relay="' . $d['relay'] . '" data-mqtt="' . $d['mqtt_name'] . '" data-dimmable="' . ($d['dimmable'] ? '1' : '0') . '" data-state="' . $d['state'] . '" data-label="' . htmlspecialchars($d['label'], ENT_QUOTES) . '">' . ($is_on ? 'OFF' : 'ON') . '</button>';
             $rendered_cards_html .= '      </div>';
         }
