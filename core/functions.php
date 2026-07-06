@@ -66,23 +66,43 @@ if (!function_exists('handle_device_action')) {
             }
 
             if ($action === 'dimmer') {
-               // 💡 EXTRACTION DYNAMIQUE DU NOM MQTT DEPUIS LE CACHE RAM
-                $mqtt_name = "";
-                $cache_file = '/var/www/html/sha/data/sha_live.json';
+            // 💡 EXTRACTION DYNAMIQUE DU NOM MQTT DEPUIS LE CACHE RAM
+            $mqtt_name = "";
+            $cache_file = '/var/www/html/sha/data/sha_live.json';
+            
+            if (file_exists($cache_file)) {
+                $live_data = json_decode(@file_get_contents($cache_file), true);
+                // 🛡️ On ajoute trim() pour éliminer d'éventuels espaces ou retours à la ligne du script Python
+                $mqtt_name = trim($live_data['devices'][$ip]['mqtt_name'] ?? "");
+            }
+
+            // Sécurité si le module n'a pas encore envoyé de trame au cache builder
+            if (empty($mqtt_name)) {
+                echo json_encode(['success' => false, 'message' => 'MQTT-Name nicht im Cache gefunden']);
+                exit;
+            }
+
+            // 🔍 Détection spécifique du Shelly Dimmer 2
+            $is_dimmer2 = (strpos(strtolower($mqtt_name), 'dimmer2') !== false);
+
+            if ($is_dimmer2) {
+                // ==========================================
+                // CAS 1 : Shelly Dimmer 2 (Génération 1)
+                // ==========================================
+                $topic = "shellies/" . $mqtt_name . "/light/0/set";
                 
-                if (file_exists($cache_file)) {
-                    $live_data = json_decode(@file_get_contents($cache_file), true);
-                    // 🛡️ On ajoute trim() pour éliminer d'éventuels espaces ou retours à la ligne du script Python
-                    $mqtt_name = trim($live_data['devices'][$ip]['mqtt_name'] ?? "");
-                }
+                // On construit le JSON attendu par Shelly en sécurisant la valeur reçue (0-100)
+                $payload = '{"turn":"on","brightness":' . intval($value) . '}';
+                
+                // Utilisation de escapeshellarg() pour éviter tout problème de guillemets dans le exec
+                $cmd = "mosquitto_pub " . $auth_part . " -t " . escapeshellarg($topic) . " -m " . escapeshellarg($payload) . " > /dev/null 2>&1";
+                @exec($cmd);
 
-                // Sécurité si le module n'a pas encore envoyé de trame au cache builder
-                if (empty($mqtt_name)) {
-                    echo json_encode(['success' => false, 'message' => 'MQTT-Name nicht im Cache gefunden']);
-                    exit;
-                }
-
-                // 🟩 ALIGNEMENT DE SYNTAXE SUR LE BLOC OBK (Fiable et direct)
+            } else {
+                // ==========================================
+                // CAS 2 : ALIGNEMENT DE SYNTAXE SUR LE BLOC OBK (OpenBeken)
+                // ==========================================
+                
                 // Étape A : On applique l'intensité sur le canal 1
                 @exec("mosquitto_pub $auth_part -t '{$mqtt_name}/1/set' -m '{$value}' > /dev/null 2>&1");
 
@@ -91,10 +111,11 @@ if (!function_exists('handle_device_action')) {
 
                 // Étape C : On force le canal 0 (couleur) à 0 à chaque changement
                 @exec("mosquitto_pub $auth_part -t '{$mqtt_name}/0/set' -m '0' > /dev/null 2>&1");
-
-                echo json_encode(['success' => true, 'message' => 'Intensité et état appliqués']);
-                exit;
             }
+
+    echo json_encode(['success' => true, 'message' => 'Intensité et état appliqués']);
+    exit;
+}
             
             echo json_encode(['success' => false, 'message' => 'Aktion unbekannt']);
             exit;
@@ -130,15 +151,37 @@ if (!function_exists('handle_device_action')) {
             $is_shelly = (strpos($mqtt_name, 'helly') !== false);
 
             if ($is_shelly) {
-                $topic = $mqtt_name . "/rpc";
-                $rpc_bool = ($target_state === 'ON') ? 'true' : 'false';
-                
-                // 💡 Gestion des IDs de Triggers
-                $trigger_id = intval($relay_or_mac); // ID du trigger pour le suivi (ex: 1, 2, 3...)
-                $switch_id = $trigger_id;        // Index du switch interne Shelly (ex: 0, 1, 2...)
-                if ($switch_id < 0) $switch_id = 0;
+                // 🔍 Détection spécifique du Shelly Dimmer 2
+                $is_dimmer2 = (strpos(strtolower($mqtt_name), 'dimmer2') !== false);
 
-                $payload = '{"id":' . $trigger_id . ',"src":"sha_backend","method":"Switch.Set","params":{"id":' . $switch_id . ',"on":' . $rpc_bool . '}}';
+                if ($is_dimmer2) {
+                    // ==========================================
+                    // CAS 1 : Shelly Dimmer 2 (Génération 1)
+                    // ==========================================
+                    
+                    // 💡 Note : Si ton $mqtt_name en BDD contient DÉJÀ toute la chaîne "Shelly_Dimmer2_BZ_...", 
+                    // retire le "shellies/" ci-dessous pour ne pas doubler le préfixe.
+                    $topic = "shellies/" . $mqtt_name . "/light/0/command"; 
+                    
+                    // Le Dimmer 1ère gen attend "on" ou "off" en minuscules
+                    $payload = strtolower($target_state); 
+
+                } else {
+                    // ==========================================
+                    // CAS 2 : Shelly Classique (Génération 2/3 - RPC)
+                    // ==========================================
+                    $topic = $mqtt_name . "/rpc";
+                    $rpc_bool = ($target_state === 'ON') ? 'true' : 'false';
+                    
+                    // 💡 Gestion des IDs de Triggers
+                    $trigger_id = intval($relay_or_mac); // ID du trigger pour le suivi (ex: 1, 2, 3...)
+                    $switch_id = $trigger_id;        // Index du switch interne Shelly (ex: 0, 1, 2...)
+                    if ($switch_id < 0) $switch_id = 0;
+
+                    $payload = '{"id":' . $trigger_id . ',"src":"sha_backend","method":"Switch.Set","params":{"id":' . $switch_id . ',"on":' . $rpc_bool . '}}';
+                }
+
+                // 🚀 Génération de la commande commune mosquitto_pub
                 $cmd = trim("mosquitto_pub " . $auth_part) . " -t " . escapeshellarg($topic) . " -m " . escapeshellarg($payload);
                 
                 // --- EXÉCUTION DU SCRIPT MQTT ---
@@ -152,7 +195,7 @@ if (!function_exists('handle_device_action')) {
                         'new_state' => $target_state
                     ]);
                 } else {
-                    // Échec de la commande mosquitto_pub
+                    // Échec de la commande mosquitto_pub (Décommente pour débugger au besoin)
                     /*echo json_encode([
                         'success' => false, 
                         'message' => 'MQTT Exec Error (Code ' . $return_var . ')',

@@ -243,7 +243,7 @@ document.addEventListener('click', function(e) {
         const isDimmable = btn.getAttribute('data-dimmable') === '1'; 
 
         // 💡 MODIFICATION : On restreint l'action aux lampes gradables uniquement
-        if (type === 'light' && isDimmable) {
+        if ((type === 'light' || type === 'light_p') && isDimmable) {
             const row = btn.closest('.dev-row');
             if (!row) return;
 

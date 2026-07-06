@@ -224,7 +224,7 @@ def on_message(client, userdata, msg):
                 # 📊 PARSING SPÉCIFIQUE ENTRÉES/SORTIES SHELLY EM (GEN 1)
                 if "shellies" in topic:
                     try:
-                        if "emeter" in parts and topic.endswith("/power"):
+                        if ("emeter" in parts or "light" in parts) and topic.endswith("/power"):
                             # parts: ['shellies', 'Shelly_EM_Auto_192_168_0_184', 'emeter', '0', 'power']
                             update_device_cache(ip, power=float(payload_str), channel=parts[3])
                         elif "relay" in parts:

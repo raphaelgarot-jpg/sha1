@@ -68,6 +68,7 @@ $solar_watt = $tas_cache[$sys['ip_solar_tasmota']]['power'] ?? 0;
 $p_pc_famille = 0;
 $p_bildschirm_raf = 0;
 $p_licht_kommode = 0;
+$p_badezimmer = 0;
 $p_moniteur_bureau = 0; // 💡 AJOUT : Stockage temporaire de la puissance du moniteur bureau
 
 foreach ($rooms as $r_name => $r_data) {
@@ -100,6 +101,10 @@ foreach ($rooms as $r_name => $r_data) {
             // Capture dynamique pour la soustraction Kommode
             if (strpos(strtolower($label), 'licht kommode') !== false) {
                 $p_licht_kommode = $dev_power;
+            }
+            // Capture dynamique pour la soustraction BZ
+            if (strpos(strtolower($label), 'licht bz') !== false) {
+                $p_badezimmer = $dev_power;
             }
             // 💡 AJOUT : Capture dynamique pour le moniteur bureau via son IP ou son Label
             if ($ip === '192.168.0.64' || strpos(strtolower($label), 'moniteur bureau') !== false) {
@@ -153,6 +158,11 @@ foreach ($rooms as $name => $data) {
                     // 💡 SOUSTRACTION 3 : La Kommode est déduite du réseau EG
                     if (strpos(strtolower($label), 'netzwerk erdgeschoss') !== false) {
                         $p = max(0, $p - $p_licht_kommode);
+                    }
+
+                     // 💡 SOUSTRACTION 4 : La Licht BZ est déduite du réseau BZ
+                    if (strpos(strtolower($label), 'badezimmer') !== false) {
+                        $p = max(0, $p - $p_badezimmer);
                     }
 
                     // 💡 AJOUT - SOUSTRACTION 4 : Le Moniteur Bureau est déduit du PC Bureau
