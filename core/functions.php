@@ -237,7 +237,7 @@ if (!function_exists('handle_device_action')) {
                     }
 
                     $user_auth = $win_user . '%' . $win_pass;
-                    $cmd = "sudo /usr/bin/net rpc shutdown -I " . escapeshellarg($ip) . " -U " . escapeshellarg($user_auth) . " -t 0 -f 2>&1";
+                    $cmd = "net rpc shutdown -I " . escapeshellarg($ip) . " -U " . escapeshellarg($user_auth) . " -t 0 -f 2>&1";
                     @exec($cmd, $output, $return_var);
 
                     if ($return_var === 0) {
