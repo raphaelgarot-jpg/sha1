@@ -44,3 +44,6 @@ ENV/
 Thumbs.db
 
 INSTALL.md
+
+node_modules/
+node_modules/*

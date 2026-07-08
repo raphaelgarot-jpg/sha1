@@ -363,3 +363,71 @@ function get_sha_live_cache($cache_path = '/var/www/html/sha/data/sha_live.json'
     }
     return false;
 }
+
+/* =====================================================================
+   ♨️ SOUS-SYSTÈME THERMIQUE A.S.H.E.S. (DOCKER QUEUE ENGINE)
+   ===================================================================== */
+
+/**
+ * Intercepte les clics et dépose un fichier d'ordre pour le Worker Docker
+ */
+/**
+ * Intercepte les clics AJAX et dépose un fichier d'ordre pour le Worker Docker
+ */
+function handle_heating_action() {
+    $cmd_file = '/var/www/html/sha/data/heiz_cmd.json';
+
+    // Interception des requêtes asynchrones AJAX
+    if (isset($_GET['ajax_cmd'])) {
+        $cmd = [
+            'fct'       => trim($_GET['fct']),
+            'id'        => trim($_GET['id']),
+            'temp'      => isset($_GET['temp']) ? trim($_GET['temp']) : 'BOOST',
+            'timestamp' => time()
+        ];
+        @file_put_contents($cmd_file, json_encode($cmd));
+        
+        // 🟩 ZONE MODIFIÉE : On jette le HTML généré par header.php pour ne pas polluer le JSON
+        while (ob_get_level() > 0) {
+            ob_end_clean();
+        }
+        
+        header('Content-Type: application/json');
+        echo json_encode(['success' => true, 'message' => 'Ordre transmis à la file Docker']);
+        exit;
+    }
+
+    // Ordre de Hard Scan global
+    if (isset($_GET['scan'])) {
+        $cmd = [
+            'fct'       => 'scan',
+            'timestamp' => time()
+        ];
+        @file_put_contents($cmd_file, json_encode($cmd));
+        header("Location: heiz.php?update=1");
+        exit;
+    }
+}
+
+/**
+ * Lit le cache JSON unifié généré en tâche de fond par le conteneur Node
+ */
+function get_maxcube_live_data($json_path = '/var/www/html/sha/data/heiz_out.json') {
+    $fallback = [
+        'system'  => ['duty_val' => 0, 'slots_val' => 50, 'duty_color' => 'var(--green)', 'next_fmt' => 'MAJ...'],
+        'devices' => []
+    ];
+
+    if (!file_exists($json_path)) {
+        return $fallback;
+    }
+
+    $data = json_decode(@file_get_contents($json_path), true);
+    if (!$data) return $fallback;
+
+    // Calcul du rafraîchissement restant basé sur l'âge réel du fichier JSON
+    $next_up = (filemtime($json_path) + 300) - time();
+    $data['system']['next_fmt'] = ($next_up > 0) ? sprintf("%02dm %02ds", floor($next_up/60), $next_up%60) : "MAJ...";
+
+    return $data;
+}

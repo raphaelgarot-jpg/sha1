@@ -314,6 +314,96 @@ document.addEventListener("click", function(e) {
         document.querySelectorAll('.ashes-glossary').forEach(el => el.classList.remove('active'));
     }
 });
+
+/* =====================================================================
+   ♨️ CONTROL ENGINE & OVERLAY DU SYSTÈME CLIMATIQUE
+   ===================================================================== */
+function triggerScan() {
+    // Génération de l'overlay volcanique en harmonie avec le thème A.S.H.E.S
+    const overlay = document.createElement('div');
+    overlay.style = 'display:flex; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(35,28,27,0.96); z-index:99999; flex-direction:column; justify-content:center; align-items:center; color:#f7f5f5; font-family: "Segoe UI", system-ui, sans-serif;';
+    overlay.innerHTML = `
+        <div style="font-size:4.5rem; animation:volcanicRotation 2.5s linear infinite; margin-bottom:20px; filter: drop-shadow(0 0 15px rgba(255,145,0,0.3));">⚙️</div>
+        <div style="text-align:center;">
+            <h2 style="font-size:1.2rem; font-weight:900; letter-spacing:2px; color:var(--orange); text-transform:uppercase; margin:0 0 5px 0;">CUBE HARD SCAN...</h2>
+            <p style="font-size:0.8rem; color:#bcaaa4; margin:0 0 15px 0;">Synchronisation des vannes radio EQ-3</p>
+            <div style="font-size:2.5rem; color:var(--red); font-weight:900;"><span id="scan-timer">11</span>s</div>
+        </div>
+        <style>
+            @keyframes volcanicRotation { from { transform:rotate(0deg) } to { transform:rotate(360deg) } }
+        </style>
+    `;
+    document.body.appendChild(overlay);
+    
+    let countdown = 11;
+    const interval = setInterval(() => { 
+        countdown--; 
+        if (countdown >= 0) {
+            const timerEl = document.getElementById('scan-timer');
+            if(timerEl) timerEl.innerText = countdown;
+        } else {
+            clearInterval(interval);
+        }
+    }, 1000);
+    
+    setTimeout(() => { 
+        window.location.href = "heiz.php?scan=1"; 
+    }, 150);
+}
+
+/* =====================================================================
+   ♨️ PILOTAGE DES RADIATEURS ASYNCHRONE DOCKER (AJAX FETCH)
+   ===================================================================== */
+function setRoomTemperature(rfId, tempValue, event) {
+    const btn = event.currentTarget;
+    const originalText = btn.innerText;
+    
+    // Feedback visuel immédiat d'attente
+    btn.innerText = "⏳";
+    btn.disabled = true;
+
+    fetch(`heiz.php?ajax_cmd=1&fct=temp&id=${rfId}&temp=${tempValue}`)
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                btn.innerText = "✓";
+                btn.style.background = "var(--green)";
+                setTimeout(() => {
+                    btn.innerText = originalText;
+                    btn.style.background = "";
+                    btn.disabled = false;
+                }, 1200);
+            }
+        })
+        .catch(err => {
+            btn.innerText = "❌";
+            console.error("Erreur d'envoi de consigne :", err);
+        });
+}
+
+function triggerRoomBoost(rfId, event) {
+    const btn = event.currentTarget;
+    btn.innerText = "BOOSTING...";
+    btn.classList.add("active");
+    btn.disabled = true;
+
+    fetch(`heiz.php?ajax_cmd=1&fct=mode&id=${rfId}&temp=BOOST`)
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                console.log(`Ordre Boost enregistré pour la vanne ${rfId}`);
+            }
+        })
+        .catch(err => {
+            btn.innerText = "BOOST";
+            btn.classList.remove("active");
+            btn.disabled = false;
+            console.error("Erreur d'activation Boost :", err);
+        });
+}
+
+
+
 // Amorçage des scripts globaux
 document.addEventListener("DOMContentLoaded", initDeviceToggles);
 document.addEventListener("DOMContentLoaded", startAutoRefresh);
