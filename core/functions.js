@@ -25,7 +25,8 @@ function sendRoll(master, slave, state, btn) {
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
         // 💡 On force le chemin absolu /sha/sw.js et on verrouille le scope au sous-dossier
-        navigator.serviceWorker.register('/sha/sw.js', { scope: '/sha/' })
+       // navigator.serviceWorker.register('/sw.js', { scope: '/' })
+       navigator.serviceWorker.register('/sw.js')
             .then(registration => {
                 console.log('Service Worker enregistré avec succès:', registration);
             })

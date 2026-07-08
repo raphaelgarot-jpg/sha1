@@ -342,24 +342,24 @@ function get_sha_live_cache($cache_path = '/var/www/html/sha/data/sha_live.json'
     return $live_data;
 }
 
-if (!function_exists('send_wake_on_lan')) {
+
     /**
      * Envoie un Magic Packet Wake-On-LAN en UDP Broadcast (Pure PHP)
      */
     function send_wake_on_lan($mac) {
-        $mac = preg_replace('/[^0-9a-fA-F]/', '', $mac);
-        if (strlen($mac) !== 12) return false;
+    $mac = preg_replace('/[^0-9a-fA-F]/', '', $mac);
+    if (strlen($mac) !== 12) return false;
 
-        $hex_mac = pack('H*', $mac);
-        $packet = str_repeat(chr(255), 6) . str_repeat($hex_mac, 16);
+    $hex_mac = pack('H*', $mac);
+    $packet = str_repeat(chr(255), 6) . str_repeat($hex_mac, 16);
 
-        $sock = socket_create(AF_INET, SOCK_DGRAM, SOL_UDP);
-        if ($sock) {
-            socket_set_option($sock, SOL_SOCKET, SO_BROADCAST, 1);
-            socket_sendto($sock, $packet, strlen($packet), 0, '255.255.255.255', 9);
-            socket_close($sock);
-            return true;
-        }
-        return false;
+    $sock = socket_create(AF_INET, SOCK_DGRAM, SOL_UDP);
+    if ($sock) {
+        // 🟢 ON ENVOIE EN UNICAST DIRECTEMENT AU PI (sur le port 9999)
+        // Le NAT de Docker va laisser passer ce paquet sans broncher
+        socket_sendto($sock, $packet, strlen($packet), 0, '192.168.0.10', 9999);
+        socket_close($sock);
+        return true;
     }
+    return false;
 }

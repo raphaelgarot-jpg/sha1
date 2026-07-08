@@ -1,7 +1,7 @@
 self.addEventListener('push', function(event) {
     const data = event.data ? event.data.json() : { title: 'Alerte', body: 'Nouveau message', badge: 1 };
 
-    // 1. Affichage de la notification
+    // 1. Affichage de la notification (Chemins nettoyés)
     const promiseChain = self.registration.showNotification(data.title, {
         body: data.body,
         icon: '/assets/img/favicon.png',
