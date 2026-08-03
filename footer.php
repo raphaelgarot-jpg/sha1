@@ -22,5 +22,5 @@ if (file_exists($version_path)) {
         </div>
     </div>
 </footer>
-</body>
+</body> 
 </html>
