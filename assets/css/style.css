@@ -949,3 +949,63 @@ body {
 .task-modal-actions {
     display: flex; justify-content: flex-end; gap: 10px;
 }
+/* 1. À ajouter dans assets/css/style.css */
+
+/* Design mobile par défaut (iOS) : Compact */
+.task-actions-responsive {
+    display: flex;
+    flex-direction: column;
+    flex: 0 0 130px;
+    width: 130px;
+    gap: 5px;
+}
+.task-buttons-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 4px;
+    width: 100%;
+}
+.task-btn-responsive {
+    margin: 0;
+    min-width: 0;
+    padding: 4px 0;
+    min-height: 30px;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+/* Design Desktop (PC) : Élargi */
+@media (min-width: 768px) {
+    .task-actions-responsive {
+        flex: 0 0 180px;
+        width: 180px;
+    }
+    .task-buttons-grid {
+        gap: 6px;
+    }
+    .task-btn-responsive {
+        padding: 6px 0;
+        min-height: 32px;
+    }
+}
+
+/* --- HAUSHALT : AFFICHAGE 2 COLONNES POUR LES CARTES LARGES (HAUS) --- */
+.room-card.wide .task-room-body {
+    display: grid !important; /* Force la bascule de flex à grid */
+    grid-template-columns: repeat(2, 1fr);
+    gap: 15px;
+    align-items: start; /* Empêche les lignes de s'étirer verticalement */
+}
+
+/* Le bouton d'ajout de tâche doit prendre toute la largeur en bas de la grille */
+.room-card.wide .btn-add-task-container {
+    grid-column: 1 / -1; 
+    margin-top: 5px;
+}
+
+/* 📱 Responsive : Retour sur 1 colonne pour les tablettes et mobiles */
+@media (max-width: 1024px) {
+    .room-card.wide .task-room-body {
+        grid-template-columns: 1fr;
+    }
+}
