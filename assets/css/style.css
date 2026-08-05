@@ -726,3 +726,226 @@ body {
     align-items: center; 
     font-size: 1.1rem; 
 }
+/* =====================================================================
+   🧹 HAUSHALT / TASK MANAGER (task.php)
+   ===================================================================== */
+.task-global-card {
+    margin-bottom: 25px;
+    border: 1px solid rgba(255, 152, 0, 0.4); /* Equivalent à #ff980066 */
+    border-top: 3px solid #ff9800;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.task-global-title {
+    justify-content: center;
+    color: #ff9800;
+}
+
+.task-global-score {
+    font-size: 2.8rem;
+    font-weight: 900;
+    line-height: 1;
+    text-align: center;
+    color: #ff9800;
+}
+
+.task-global-score small {
+    font-size: 1rem;
+    color: #444;
+}
+
+.task-progress-bg {
+    height: 8px;
+    background: #111;
+    border-radius: 4px;
+    overflow: hidden;
+    border: 1px solid #222;
+}
+
+.task-progress-fill {
+    background: #ff9800;
+    height: 100%;
+    transition: width 0.5s;
+}
+
+.task-badge {
+    background: #ff9800;
+    color: #fff;
+}
+
+.task-room-body {
+    padding: 10px 20px;
+}
+
+.btn-add-task-container {
+    margin-top: 10px;
+    text-align: center;
+}
+
+.btn-add-task {
+    background: #3498db;
+    width: 100%;
+    padding: 10px;
+}
+/* --- TOOLTIP TACHES (ULTRA RAPIDE & MOBILE) --- */
+.task-tooltip-wrapper {
+    position: relative;
+    cursor: pointer;
+}
+
+.task-tooltip {
+    visibility: hidden;
+    opacity: 0;
+    position: absolute;
+    bottom: 100%;
+    left: 0;
+    background: var(--header-bg);
+    border: 1px solid var(--orange);
+    color: #fff;
+    padding: 8px 12px;
+    border-radius: var(--radius-sm);
+    font-size: 0.75rem;
+    white-space: normal;
+    min-width: 200px;
+    max-width: 300px;
+    z-index: 100;
+    transition: opacity 0.1s ease; /* 🚀 Affichage quasi-immédiat */
+    pointer-events: none;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+    margin-bottom: 8px;
+}
+
+/* Déclencheur Hover (PC) et Active (Mobile via clic) */
+.task-tooltip-wrapper:hover .task-tooltip,
+.task-tooltip-wrapper.active .task-tooltip {
+    visibility: visible;
+    opacity: 1;
+}
+
+/* =====================================================================
+   🧹 HAUSHALT : UI DES TÂCHES & RESPONSIVE MOBILE
+   ===================================================================== */
+.task-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 15px;
+    padding: 10px;
+}
+
+.task-info {
+    display: flex;
+    flex-direction: column;
+    flex-grow: 1;
+}
+
+.task-title-bar {
+    display: flex;
+    align-items: center;
+}
+
+.task-actions {
+    display: flex;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+/* 📱 ADAPTATION MOBILE (Écrans < 768px) */
+@media (max-width: 768px) {
+    .task-row {
+        flex-direction: column;
+        align-items: flex-start; /* Aligne le texte à gauche */
+    }
+    
+    .task-actions {
+        width: 100%;
+        justify-content: space-between; /* Espace les boutons uniformément */
+        margin-top: 8px;
+    }
+    
+    .task-actions .toggle-btn {
+        flex: 1; /* Les boutons prennent toute la largeur disponible */
+        padding: 12px 0; /* Zone de tap plus grande pour les doigts */
+        font-size: 1rem;
+    }
+}
+/* 📱 ADAPTATION MOBILE (Écrans < 768px) */
+@media (max-width: 768px) {
+    /* On surcharge les !important de la classe .dev-row */
+    .task-row {
+        flex-direction: column !important;
+        align-items: flex-start !important;
+    }
+    
+    .task-actions {
+        width: 100% !important;
+        justify-content: space-between !important;
+        margin-top: 12px !important;
+    }
+    
+    .task-actions .toggle-btn {
+        flex: 1 !important;
+        padding: 12px 0 !important;
+        font-size: 1rem !important;
+    }
+}
+/* 2. assets/css/style.css : Nettoyage des styles inline de la modale */
+.task-modal-overlay {
+    display: none; 
+    position: fixed; 
+    top: 0; left: 0; width: 100%; height: 100%; 
+    background: rgba(0,0,0,0.8); 
+    z-index: 9999; 
+    align-items: center; justify-content: center;
+}
+
+.task-modal-content {
+    width: 90%; max-width: 500px; 
+    padding: 20px; box-sizing: border-box;
+}
+
+.task-modal-header {
+    margin-bottom: 15px; padding-bottom: 10px; border-bottom: 1px solid var(--border);
+}
+
+.task-modal-form-group {
+    margin-bottom: 15px;
+}
+
+.task-modal-label {
+    display: block; margin-bottom: 5px; font-size: 0.85rem; color: #aaa;
+}
+
+.task-modal-input {
+    width: 100%; padding: 8px; 
+    background: var(--bg-dark); color: #fff; 
+    border: 1px solid var(--border); border-radius: 4px;
+}
+
+.task-modal-input-half {
+    width: 50%; padding: 8px; 
+    background: var(--bg-dark); color: #fff; 
+    border: 1px solid var(--border); border-radius: 4px;
+}
+
+.task-modal-row {
+    display: flex; gap: 15px; margin-bottom: 15px;
+}
+
+.task-modal-col {
+    flex: 1;
+}
+.task-modal-col-2 {
+    flex: 2;
+}
+
+.task-modal-input-group {
+    display: flex; gap: 5px;
+}
+
+.task-modal-actions {
+    display: flex; justify-content: flex-end; gap: 10px;
+}

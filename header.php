@@ -1,3 +1,4 @@
+<!DOCTYPE html>
 <?php
 error_reporting(0);
 ini_set('display_errors', 0);
@@ -15,7 +16,7 @@ if (!file_exists($config_path)) {
 $rooms = parse_ini_file($config_path, true);
 
 ?>
-<!DOCTYPE html>
+
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
@@ -24,12 +25,15 @@ $rooms = parse_ini_file($config_path, true);
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="A.S.H.E.S.">
     <link rel="apple-touch-icon" href="/assets/img/favicon.png">
+
+
     <link rel="apple-touch-icon-precomposed" href="/assets/img/favicon.png">
     <link rel="manifest" href="/sha/manifest.json">
     <title>A.S.H.E.S. v0.7</title>
 
     <link rel="icon" type="image/png" href="/assets/img/favicon.png">
-    <link rel="stylesheet" href="assets/css/style.css?v=<?php echo time(); ?>">
+    <link rel="stylesheet" href="assets/css/style.css?v=<?= filemtime(__DIR__ . '/assets/css/style.css') ?>">
+    
 
     <script src="core/functions.js"></script>
     <script>

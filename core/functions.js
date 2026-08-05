@@ -1,156 +1,69 @@
 /**
- * SHA 2026 - Contrôle AJAX des Volets
- * Ce code est du JavaScript pur, exécuté par le navigateur.
+ * S.H.A. 2026 - Fonctions JavaScript Core
  */
-function sendRoll(master, slave, state, btn) {
-    // 1. Feedback visuel : on grise le bouton
-    if (btn) btn.classList.add('loading');
 
-    // 2. Appel asynchrone (AJAX)
-    // On utilise les "backticks" (touche alt gr + 7) pour injecter les variables
-    fetch(`scripts/sendst.php?master=${master}&slave=${slave}&state=${state}&return=rolladen&ajax=1`)
-    .then(response => {
-        // 3. On retire l'effet "loading" après 500ms
-        setTimeout(() => {
-            if (btn) btn.classList.remove('loading');
-        }, 500);
-    })
-    .catch(err => {
-        if (btn) btn.classList.remove('loading');
-        console.error("Erreur SHA Roll:", err);
-    });
-}
-
-// --- SERVICE WORKER & NOTIFICATIONS SÉCURISÉ ---
-if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-        // 💡 On force le chemin absolu /sha/sw.js et on verrouille le scope au sous-dossier
-       // navigator.serviceWorker.register('/sw.js', { scope: '/' })
-       navigator.serviceWorker.register('/sw.js')
-            .then(registration => {
-                console.log('Service Worker enregistré avec succès:', registration);
-            })
-            .catch(error => {
-                console.error('Échec de l\'enregistrement du Service Worker:', error);
-        });
-    });
-}
-
-// 1. Nettoyage du badge iOS à l'ouverture de l'app
-window.addEventListener('load', () => {
-    if ('setAppBadge' in navigator) {
-        navigator.setAppBadge(0).catch((error) => {
-            console.error("Erreur nettoyage badge:", error);
-        });
-    }
-});
-
-// Nouvelle fonction de nettoyage globale
-function clearBadge() {
-    if (navigator.clearAppBadge) {
-        navigator.clearAppBadge().catch(e => console.error(e));
-    }
-}
-
-  async function subscribeUser() {
-            const PUBLIC_VAPID_KEY = 'BHcrWpFdWmmKDpda9RjhkoMwKQUuF1cAKjgYmJM1QDWvAdPNs9FkhW99xvIMXsIK7xGGAac_l5yHkmiD2bAXaKg';
-            try {
-                const registration = await navigator.serviceWorker.ready;
-                const subscription = await registration.pushManager.subscribe({
-                    userVisibleOnly: true,
-                    applicationServerKey: urlBase64ToUint8Array(PUBLIC_VAPID_KEY)
-                });
-                const response = await fetch('scripts/save_sub.php', {
-                    method: 'POST',
-                    body: JSON.stringify(subscription),
-                    headers: { 'Content-Type': 'application/json' }
-                });
-                const result = await response.json();
-                alert(result.message);
-                if(typeof toggleSHA === "function") toggleSHA();
-            } catch (e) {
-                alert("Erreur abonnement : " + e.message);
-                console.error(e);
-            }
-        }
-
-        function urlBase64ToUint8Array(base64String) {
-            const padding = '='.repeat((4 - base64String.length % 4) % 4);
-            const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-            const rawData = window.atob(base64);
-            return Uint8Array.from([...rawData].map((char) => char.charCodeAt(0)));
-        }
-
-function toggleSHA() {
-    const sidebar = document.getElementById('sidebar');
-    const overlay = document.getElementById('overlay');
-    sidebar.classList.toggle('active');
-    overlay.classList.toggle('active');
-    document.body.style.overflow = sidebar.classList.contains('active') ? 'hidden' : '';
-}
+// --- ÉTAT GLOBAL ---
+window.isTaskModalOpen = false;
 
 // ==========================================
 // AUTO-REFRESH INVISIBLE (AJAX)
 // ==========================================
-
 function startAutoRefresh() {
-    // Délai de rafraîchissement (10 secondes = 10000 ms)
     const refreshInterval = 10000; 
 
-    // On s'assure de ne lancer l'auto-refresh que si l'élément .container existe
     if (!document.querySelector('.container')) return;
 
     setInterval(() => {
-        // On récupère l'URL de la page actuelle (ex: strom.php ou rolladen.php)
+        if (window.isTaskModalOpen) {
+            return;
+        }
+
         const currentUrl = window.location.href;
 
-        // On lance la requête en arrière-plan en forçant le contournement du cache navigateur
         fetch(currentUrl, { cache: "no-store" })
             .then(response => {
                 if (!response.ok) throw new Error("Erreur réseau");
                 return response.text();
             })
             .then(html => {
-                // On transforme le texte reçu en véritable document HTML
+                if (window.isTaskModalOpen) return;
+
                 const parser = new DOMParser();
                 const doc = parser.parseFromString(html, "text/html");
 
-                // On cible la zone principale (le container)
                 const newContainer = doc.querySelector('.container');
                 const currentContainer = document.querySelector('.container');
 
-                // Si la requête a réussi et que la structure est bonne, on remplace le contenu
                 if (newContainer && currentContainer) {
                     currentContainer.innerHTML = newContainer.innerHTML;
                 }
             })
             .catch(error => {
                 console.warn("Erreur silencieuse lors du refresh AJAX:", error);
-                // On ne bloque pas l'UI, le prochain essai se fera dans 10s
             });
     }, refreshInterval);
 }
 
-/**
- * Initialise le contrôle des boutons via délégation d'événement (Compatible PC, Sockets & Lights)
- */
+// ==========================================
+// CONTRÔLE DES APPAREILS (STECKDOSEN / LIGHTS)
+// ==========================================
 function initDeviceToggles() {
     document.addEventListener('click', function(event) {
-        var button = event.target.closest('.toggle-btn');
-        if (!button) return;
+        var btn = event.target.closest('.toggle-btn');
+        
+        // Stoppe l'exécution si ce n'est pas un contrôleur d'appareil
+        if (!btn || !btn.hasAttribute('data-state')) return;
 
-        var btn = button;
         var ip = btn.getAttribute('data-ip');
         var relay = btn.getAttribute('data-relay');
         var currentState = btn.getAttribute('data-state');
         var label = btn.getAttribute('data-label');
-        var type = btn.getAttribute('data-type') || 'socket'; // 💡 Récupération du type de périphérique
-        var mqtt_name = btn.getAttribute('data-mqtt') || '';  // 💡 AJOUT : Récupération du nom MQTT depuis le HTML
+        var type = btn.getAttribute('data-type') || 'socket'; 
+        var mqtt_name = btn.getAttribute('data-mqtt') || '';  
 
         var nextAction = (currentState === 'ON') ? 'OFF' : 'ON';
         var devRow = btn.closest('.dev-row');
 
-        // 🔐 DEUTSCHE SICHERHEIT : Schutz vor Missklicks beim Ausschalten
         if (nextAction === 'OFF') {
             var confirmCut = confirm("⚠️ S.H.A. Sicherheit: Sind Sie sicher, dass Sie das Gerät \"" + label + "\" AUSSCHALTEN möchten?");
             if (!confirmCut) return;
@@ -163,8 +76,8 @@ function initDeviceToggles() {
         formData.append('action', nextAction);
         formData.append('ip', ip);
         formData.append('relay', relay);
-        formData.append('type', type);         // 💡 Envoi du type de périphérique à functions.php
-        formData.append('mqtt_name', mqtt_name); // 💡 AJOUT : Envoi du nom MQTT à functions.php
+        formData.append('type', type);        
+        formData.append('mqtt_name', mqtt_name); 
 
         fetch('steckdose.php', {
             method: 'POST',
@@ -199,11 +112,8 @@ function initDeviceToggles() {
     });
 }
 
-/**
- * Met à jour l'interface graphique d'une ligne de périphérique
- */
 function updateDeviceUI(btn, devRow, state) {
-    var statusText = devRow.querySelector('.status-text');
+    var statusText = devRow ? devRow.querySelector('.status-text') : null;
 
     if (state === 'ON') {
         btn.className = "toggle-btn btn-on";
@@ -228,22 +138,15 @@ function updateDeviceUI(btn, devRow, state) {
     }
 }
 
-/**
- * S.H.A. 2026 - Fonctions JavaScript Core
- */
-
-// Écouteur global pour intercepter le clic sur le bouton ON/OFF général
+// DIMMER LOGIC
 document.addEventListener('click', function(e) {
     if (e.target && e.target.classList.contains('toggle-btn')) {
         const btn = e.target;
         const type = btn.getAttribute('data-type');
         const ip = btn.getAttribute('data-ip');
-        const currentState = btn.getAttribute('data-state'); // "ON" ou "OFF"
-        
-        // 💡 AJOUT : On vérifie si la lampe est dimmable (vaut "1")
+        const currentState = btn.getAttribute('data-state');
         const isDimmable = btn.getAttribute('data-dimmable') === '1'; 
 
-        // 💡 MODIFICATION : On restreint l'action aux lampes gradables uniquement
         if ((type === 'light' || type === 'light_p') && isDimmable) {
             const row = btn.closest('.dev-row');
             if (!row) return;
@@ -251,7 +154,6 @@ document.addEventListener('click', function(e) {
             const statusContainer = row.querySelector('.status-container');
             if (!statusContainer) return;
 
-            // 🚀 ACTION INSTANTANÉE AU CLIC SUR "ON" : On injecte la tirette à 100%
             if (currentState === 'OFF') {
                 if (!statusContainer.querySelector('.direct-dimmer-block')) {
                     const dimmerHtml = `
@@ -263,7 +165,6 @@ document.addEventListener('click', function(e) {
                     statusContainer.insertAdjacentHTML('beforeend', dimmerHtml);
                 }
             }
-            // 🚀 ACTION INSTANTANÉE AU CLIC SUR "OFF" : On vire la tirette immédiatement
             else if (currentState === 'ON') {
                 const dimmerBlock = statusContainer.querySelector('.direct-dimmer-block');
                 if (dimmerBlock) {
@@ -274,52 +175,43 @@ document.addEventListener('click', function(e) {
     }
 });
 
-/**
- * Transmet la valeur de la réglette d'intensité en temps réel à handle_device_action()
- */
 function sendOBKDimmer(ip, action, value) {
     const formData = new FormData();
     formData.append('ip', ip);
-    formData.append('action', action); // 'dimmer'
+    formData.append('action', action);
     formData.append('value', value);
 
     fetch('steckdose.php', { method: 'POST', body: formData })
     .then(r => r.json())
     .then(data => {
-        console.log('S.H.A. Gradation envoyée avec succès :', action, value + '%');
+        console.log('S.H.A. Gradation envoyée :', action, value + '%');
     })
     .catch(err => {
-        console.error('Erreur lors de l\'envoi de la gradation S.H.A. :', err);
+        console.error('Erreur gradation S.H.A. :', err);
     });
 }
-/* =====================================================================
-   🐦‍🔥 GESTIONNAIRE DYNAMIQUE DU GLOSSAIRE A.S.H.E.S.
-   ===================================================================== */
-document.addEventListener("click", function(e) {
-    // On cherche si le clic s'est fait sur le mot A.S.H.E.S.
-    const glossary = e.target.closest('.ashes-glossary');
-    
-    if (glossary) {
-        e.stopPropagation(); // Empêche le clic de se propager au reste du document
-        
-        // On ferme les autres infobulles si jamais il y en a d'ouvertes
-        document.querySelectorAll('.ashes-glossary').forEach(el => {
-            if (el !== glossary) el.classList.remove('active');
-        });
-        
-        // On bascule l'état de l'infobulle cliquée
-        glossary.classList.toggle('active');
-    } else {
-        // Si on clique n'importe où ailleurs, on ferme toutes les infobulles
-        document.querySelectorAll('.ashes-glossary').forEach(el => el.classList.remove('active'));
-    }
-});
 
-/* =====================================================================
-   ♨️ CONTROL ENGINE & OVERLAY DU SYSTÈME CLIMATIQUE
-   ===================================================================== */
+// ==========================================
+// VOLETS ROULANTS (ROLLÄDEN)
+// ==========================================
+function sendRoll(master, slave, state, btn) {
+    if (btn) btn.classList.add('loading');
+    fetch(`scripts/sendst.php?master=${master}&slave=${slave}&state=${state}&return=rolladen&ajax=1`)
+    .then(response => {
+        setTimeout(() => {
+            if (btn) btn.classList.remove('loading');
+        }, 500);
+    })
+    .catch(err => {
+        if (btn) btn.classList.remove('loading');
+        console.error("Erreur SHA Roll:", err);
+    });
+}
+
+// ==========================================
+// SYSTÈME CLIMATIQUE (HEIZUNG)
+// ==========================================
 function triggerScan() {
-    // Génération de l'overlay volcanique en harmonie avec le thème A.S.H.E.S
     const overlay = document.createElement('div');
     overlay.style = 'display:flex; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(35,28,27,0.96); z-index:99999; flex-direction:column; justify-content:center; align-items:center; color:#f7f5f5; font-family: "Segoe UI", system-ui, sans-serif;';
     overlay.innerHTML = `
@@ -351,14 +243,10 @@ function triggerScan() {
     }, 150);
 }
 
-/* =====================================================================
-   ♨️ PILOTAGE DES RADIATEURS ASYNCHRONE DOCKER (AJAX FETCH)
-   ===================================================================== */
 function setRoomTemperature(rfId, tempValue, event) {
     const btn = event.currentTarget;
     const originalText = btn.innerText;
     
-    // Feedback visuel immédiat d'attente
     btn.innerText = "⏳";
     btn.disabled = true;
 
@@ -402,8 +290,173 @@ function triggerRoomBoost(rfId, event) {
         });
 }
 
+// ==========================================
+// HAUSHALT (TÂCHES) - GESTION MODALE
+// ==========================================
+function formatToDatetimeLocal(timestamp) {
+    if (!timestamp) return ''; 
+    const d = new Date(timestamp * 1000);
+    d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+    return d.toISOString().slice(0, 16);
+}
 
+function toggleTaskModal(state) {
+    document.getElementById('taskModal').style.display = state ? 'flex' : 'none';
+    window.isTaskModalOpen = state; 
+}
 
-// Amorçage des scripts globaux
+function promptNewTask(room) {
+    document.getElementById('taskForm').reset();
+    document.getElementById('modalTitle').innerText = 'Nouvelle tâche : ' + room;
+    document.getElementById('modalAction').value = 'add';
+    document.getElementById('modalRoom').value = room;
+    document.getElementById('modalId').value = '';
+    
+    document.getElementById('modalLastDone').value = formatToDatetimeLocal(Math.floor(Date.now() / 1000));
+    toggleTaskModal(true);
+}
+
+function editTask(room, id, label, effort, freqVal, freqUnit, comment, lastDoneTs) {
+    document.getElementById('modalTitle').innerText = 'Modifier : ' + room;
+    document.getElementById('modalAction').value = 'edit';
+    document.getElementById('modalRoom').value = room;
+    document.getElementById('modalId').value = id;
+    
+    document.getElementById('modalLabel').value = label;
+    document.getElementById('modalEffort').value = effort;
+    document.getElementById('modalFreqVal').value = freqVal;
+    document.getElementById('modalFreqUnit').value = freqUnit;
+    document.getElementById('modalComment').value = comment;
+    document.getElementById('modalLastDone').value = formatToDatetimeLocal(lastDoneTs);
+
+    toggleTaskModal(true);
+}
+
+function submitTaskForm(e) {
+    e.preventDefault();
+    const formData = new FormData(document.getElementById('taskForm'));
+    
+    fetch(window.location.href, { method: 'POST', body: formData })
+        .then(async (r) => {
+            if (!r.ok) throw new Error("Erreur HTTP : " + r.status);
+            const text = await r.text();
+            try {
+                return JSON.parse(text);
+            } catch (err) {
+                console.error("Réponse PHP corrompue (HTML/Erreur au lieu de JSON) :", text);
+                throw new Error("PHP a renvoyé une erreur non-JSON. Regarde la console (F12).");
+            }
+        })
+        .then(res => { 
+            if (res && res.success) {
+                toggleTaskModal(false);
+                location.reload(); 
+            } else {
+                console.error("Erreur logique PHP :", res);
+                alert("Le serveur n'a pas renvoyé de succès.");
+            }
+        })
+        .catch(err => {
+            console.error("Échec de la soumission AJAX :", err);
+            alert(err.message);
+        });
+}
+
+function doneTask(room, id) {
+    const fd = new FormData();
+    fd.append('action', 'done'); fd.append('room', room); fd.append('id', id);
+    fetch(window.location.href, {method:'POST', body:fd}).then(()=>location.reload());
+}
+
+function deleteTask(room, id) {
+    if(!confirm('Supprimer cette tâche ?')) return;
+    const fd = new FormData();
+    fd.append('action', 'delete'); fd.append('room', room); fd.append('id', id);
+    fetch(window.location.href, {method:'POST', body:fd}).then(()=>location.reload());
+}
+
+// ==========================================
+// UI & NOTIFICATIONS SÉCURISÉES (SERVICE WORKER)
+// ==========================================
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+       navigator.serviceWorker.register('/sw.js')
+            .then(registration => {
+                console.log('Service Worker enregistré avec succès:', registration);
+            })
+            .catch(error => {
+                console.error('Échec de l\'enregistrement du Service Worker:', error);
+        });
+    });
+}
+
+window.addEventListener('load', () => {
+    if ('setAppBadge' in navigator) {
+        navigator.setAppBadge(0).catch((error) => {
+            console.error("Erreur nettoyage badge:", error);
+        });
+    }
+});
+
+function clearBadge() {
+    if (navigator.clearAppBadge) {
+        navigator.clearAppBadge().catch(e => console.error(e));
+    }
+}
+
+async function subscribeUser() {
+    const PUBLIC_VAPID_KEY = 'BHcrWpFdWmmKDpda9RjhkoMwKQUuF1cAKjgYmJM1QDWvAdPNs9FkhW99xvIMXsIK7xGGAac_l5yHkmiD2bAXaKg';
+    try {
+        const registration = await navigator.serviceWorker.ready;
+        const subscription = await registration.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: urlBase64ToUint8Array(PUBLIC_VAPID_KEY)
+        });
+        const response = await fetch('scripts/save_sub.php', {
+            method: 'POST',
+            body: JSON.stringify(subscription),
+            headers: { 'Content-Type': 'application/json' }
+        });
+        const result = await response.json();
+        alert(result.message);
+        if(typeof toggleSHA === "function") toggleSHA();
+    } catch (e) {
+        alert("Erreur abonnement : " + e.message);
+        console.error(e);
+    }
+}
+
+function urlBase64ToUint8Array(base64String) {
+    const padding = '='.repeat((4 - base64String.length % 4) % 4);
+    const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+    const rawData = window.atob(base64);
+    return Uint8Array.from([...rawData].map((char) => char.charCodeAt(0)));
+}
+
+function toggleSHA() {
+    const sidebar = document.getElementById('sidebar');
+    const overlay = document.getElementById('overlay');
+    sidebar.classList.toggle('active');
+    overlay.classList.toggle('active');
+    document.body.style.overflow = sidebar.classList.contains('active') ? 'hidden' : '';
+}
+
+document.addEventListener("click", function(e) {
+    const glossary = e.target.closest('.ashes-glossary');
+    
+    if (glossary) {
+        e.stopPropagation(); 
+        document.querySelectorAll('.ashes-glossary').forEach(el => {
+            if (el !== glossary) el.classList.remove('active');
+        });
+        glossary.classList.toggle('active');
+    } else {
+        document.querySelectorAll('.ashes-glossary').forEach(el => el.classList.remove('active'));
+    }
+});
+
+// ==========================================
+// AMORÇAGE
+// ==========================================
 document.addEventListener("DOMContentLoaded", initDeviceToggles);
 document.addEventListener("DOMContentLoaded", startAutoRefresh);

@@ -9,6 +9,7 @@ include("header.php");
     <a href="heiz.php"     class="tile"><span class="tile-icon">🔥</span><span class="tile-label">Heizung</span></a>
     <a href="strom.php"    class="tile"><span class="tile-icon">⚡</span><span class="tile-label">Strom</span></a>
     <a href="router.php"   class="tile"><span class="tile-icon">🌐</span><span class="tile-label">Netzwerk</span></a>
+    <a href="task.php"   class="tile"><span class="tile-icon">🧹</span><span class="tile-label">Haushalt</span></a>
     <a href="info.php"     class="tile"><span class="tile-icon">ℹ️</span><span class="tile-label">Info</span></a>
 </div>
 

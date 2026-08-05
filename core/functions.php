@@ -431,3 +431,115 @@ function get_maxcube_live_data($json_path = '/var/www/html/sha/data/heiz_out.jso
 
     return $data;
 }
+
+// core/functions.php : Logique de mise à jour basée sur un fichier (ex: JSON)
+function update_task_modification_date($task_id, $custom_date, $storage_file = 'data/tasks.json') {
+    if (!file_exists($storage_file)) {
+        return false;
+    }
+
+    $file_content = file_get_contents($storage_file);
+    $tasks = json_decode($file_content, true) ?? [];
+
+    // Recherche et mise à jour de la tâche par ID (ou index selon ta structure)
+    foreach ($tasks as &$task) {
+        if ($task['id'] === $task_id) {
+            // Convertit le format HTML5 (Y-m-d\TH:i) en format standard (Y-m-d H:i:s)
+            $task['last_modified_date'] = date('Y-m-d H:i:s', strtotime($custom_date));
+            break;
+        }
+    }
+
+    // Écriture synchrone pour éviter la perte de données (verrouillage optionnel si accès concurrents)
+    return file_put_contents($storage_file, json_encode($tasks, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE)) !== false;
+}
+// 1. core/functions.php : Migration de la logique métier et du CRUD
+function handle_task_ajax_request($tasks_file, $post_data) {
+    header('Content-Type: application/json');
+    $tasks = file_exists($tasks_file) ? json_decode(file_get_contents($tasks_file), true) : [];
+    
+    $action = $post_data['action'];
+    $room = $post_data['room'] ?? '';
+    $id = $post_data['id'] ?? uniqid();
+
+    if ($action === 'add' || ($action === 'edit' && isset($tasks[$room][$id]))) {
+        $raw_freq = $post_data['freq'] ?? 1;
+        $f_val = isset($post_data['freq_value']) ? max(1, (int)$post_data['freq_value']) : max(1, (int)$raw_freq);
+        $f_unit = in_array($post_data['freq_unit'] ?? 'd', ['d', 'w', 'm']) ? $post_data['freq_unit'] : 'd';
+        
+        $f_days = $f_val;
+        if ($f_unit === 'w') $f_days *= 7;
+        if ($f_unit === 'm') $f_days *= 30;
+
+        $last_done_ts = !empty($post_data['last_done']) ? strtotime($post_data['last_done']) : time();
+
+        if ($action === 'add') {
+            $tasks[$room][$id] = [
+                'label' => trim($post_data['label']),
+                'effort' => max(1, min(5, (int)$post_data['effort'])),
+                'freq_value' => $f_val,
+                'freq_unit' => $f_unit,
+                'freq' => $f_days,
+                'comment' => trim($post_data['comment'] ?? ''),
+                'last_done' => $last_done_ts
+            ];
+        } else {
+            if (isset($post_data['label'])) $tasks[$room][$id]['label'] = trim($post_data['label']);
+            if (isset($post_data['effort'])) $tasks[$room][$id]['effort'] = max(1, min(5, (int)$post_data['effort']));
+            if (isset($post_data['comment'])) $tasks[$room][$id]['comment'] = trim($post_data['comment']);
+            $tasks[$room][$id]['freq_value'] = $f_val;
+            $tasks[$room][$id]['freq_unit'] = $f_unit;
+            $tasks[$room][$id]['freq'] = $f_days;
+            $tasks[$room][$id]['last_done'] = $last_done_ts;
+        }
+    } elseif ($action === 'done' && isset($tasks[$room][$id])) {
+        $tasks[$room][$id]['last_done'] = time();
+    } elseif ($action === 'delete') {
+        unset($tasks[$room][$id]);
+    }
+
+    file_put_contents($tasks_file, json_encode($tasks, JSON_PRETTY_PRINT));
+    echo json_encode(['success' => true]);
+    exit;
+}
+
+function calculate_tasks_scores($rooms, $tasks_file) {
+    $tasks_data = file_exists($tasks_file) ? json_decode(file_get_contents($tasks_file), true) : [];
+    $global_score_accum = 0;
+    $global_effort_accum = 0;
+    $room_stats = [];
+
+    foreach ($rooms as $name => $data) {
+        if (in_array($name, ['System', 'Defaults'])) continue;
+        
+        $room_tasks = $tasks_data[$name] ?? [];
+        $r_score_accum = 0;
+        $r_effort_accum = 0;
+
+        foreach ($room_tasks as $tid => $t) {
+            $days_elapsed = (time() - $t['last_done']) / 86400;
+            $ratio = min(1, max(0, $days_elapsed / $t['freq']));
+            $task_score = 100 * (1 - $ratio);
+
+            $r_score_accum += $task_score * $t['effort'];
+            $r_effort_accum += $t['effort'];
+            
+            $global_score_accum += $task_score * $t['effort'];
+            $global_effort_accum += $t['effort'];
+        }
+        
+        $room_stats[$name] = [
+            'score' => $r_effort_accum > 0 ? round($r_score_accum / $r_effort_accum) : 100,
+            'tasks' => $room_tasks
+        ];
+    }
+
+    $gesamt_sauberkeit = $global_effort_accum > 0 ? round($global_score_accum / $global_effort_accum) : 100;
+    $color_gesamt = $gesamt_sauberkeit < 50 ? 'var(--red)' : ($gesamt_sauberkeit < 80 ? 'var(--orange)' : 'var(--green)');
+
+    return [
+        'room_stats' => $room_stats,
+        'gesamt_sauberkeit' => $gesamt_sauberkeit,
+        'color_gesamt' => $color_gesamt
+    ];
+}

@@ -11,6 +11,7 @@
         <li><a href="heiz.php"><span>🔥</span> HEIZUNG</a></li>
         <li><a href="router.php"><span>🌐</span> NETWORK</a></li>
         <li><a href="strom.php"><span>⚡</span> STROM</a></li>
+        <li><a href="task.php"><span>🧹</span> HAUSHALT</a></li>
         <li class="separator"></li>
         <li><a href="#" onclick="subscribeUser(); return false;" style="color: var(--orange); font-weight: 900;"><span>🔔</span> NOTIFICATIONS</a></li>
         <li><a href="info.php"><span>ℹ️</span> INFO</a></li>
