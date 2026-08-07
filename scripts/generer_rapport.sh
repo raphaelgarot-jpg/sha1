@@ -43,7 +43,7 @@ echo ""
 
 # 2. Parcourir et afficher le contenu des fichiers non exclus
 # 🟩 CORRECTION : Même logique dynamique appliquée ici pour le parcours profond
-find "$TARGET_DIR" \( -path "*/.git*" -o -path "$TARGET_DIR/config*" -o -path "$TARGET_DIR/backup*" -o -path "$TARGET_DIR/assets/img*" -o -path "$TARGET_DIR/img*" -o -path "$TARGET_DIR/logs*" \) -prune -o -type f -print | while read -r file; do
+find "$TARGET_DIR" \( -path "*/.git*" -o -path "$TARGET_DIR/config*" -o -path "$TARGET_DIR/backup*" -o -path "$TARGET_DIR/assets/img*" -o -path "$TARGET_DIR/node_modules*" -o -path "$TARGET_DIR/img*" -o -path "$TARGET_DIR/logs*" \) -prune -o -type f -print | while read -r file; do
 
     # Sécurité pour éviter que le script ne tente d'analyser le rapport qu'il est en train d'écrire
     if [ "$(realpath "$file")" = "$(realpath "$OUTPUT_FILE")" ]; then
