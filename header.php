@@ -6,7 +6,7 @@ ini_set('display_startup_errors', 0);
 
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
 
-include("menu.php");
+
 include("core/functions.php");
 
 $config_path = 'config/home_structure.conf';
@@ -73,7 +73,7 @@ $rooms = parse_ini_file($config_path, true);
     </script>
 </head>
 <body>
-
+<?php include("menu.php"); ?>
 <header class="sha-header">
     <div style="width: 35px;"></div>
     <div class="header-title"><span class="ashes-glossary">A.S.H.E.S.</span> v0.7</div>
