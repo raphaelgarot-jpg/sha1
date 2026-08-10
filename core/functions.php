@@ -268,16 +268,17 @@ if (!function_exists('handle_device_action')) {
                 exit;
             }
 
-            // --- CAS EXCLUSIF : OPENBEKEN (UNIQUEMENT SI L'IDENTIFIANT MQTT EST EXPLICITEMENT OBK) ---
+// --- CAS EXCLUSIF : OPENBEKEN (SÉCURISÉ) ---
             if (strpos($relay_or_mac, 'obk') === 0) {
+                $safe_topic = escapeshellarg($relay_or_mac);
                 if ($target_state === 'OFF') {
-                    @exec("mosquitto_pub $auth_part -t '{$relay_or_mac}/led_enableAll' -m '0' > /dev/null 2>&1");
-                    @exec("mosquitto_pub $auth_part -t '{$relay_or_mac}/1/set' -m '0' > /dev/null 2>&1");
+                    @exec("mosquitto_pub $auth_part -t {$safe_topic}'/led_enableAll' -m '0' > /dev/null 2>&1");
+                    @exec("mosquitto_pub $auth_part -t {$safe_topic}'/1/set' -m '0' > /dev/null 2>&1");
                 } else {
-                    @exec("mosquitto_pub $auth_part -t '{$relay_or_mac}/led_enableAll' -m '1' > /dev/null 2>&1");
-                    @exec("mosquitto_pub $auth_part -t '{$relay_or_mac}/1/set' -m '100' > /dev/null 2>&1");
+                    @exec("mosquitto_pub $auth_part -t {$safe_topic}'/led_enableAll' -m '1' > /dev/null 2>&1");
+                    @exec("mosquitto_pub $auth_part -t {$safe_topic}'/1/set' -m '100' > /dev/null 2>&1");
                 }
-                @exec("mosquitto_pub $auth_part -t '{$relay_or_mac}/0/set' -m '0' > /dev/null 2>&1");
+                @exec("mosquitto_pub $auth_part -t {$safe_topic}'/0/set' -m '0' > /dev/null 2>&1");
 
                 echo json_encode(['success' => true, 'new_state' => $target_state]);
                 exit;
@@ -460,7 +461,9 @@ function handle_task_ajax_request($tasks_file, $post_data) {
     
     $action = $post_data['action'];
     $room = $post_data['room'] ?? '';
-    $id = $post_data['id'] ?? uniqid();
+    
+    // 🟩 FIX CRITIQUE : Utilisation de !empty() au lieu de ?? pour ignorer la chaîne vide "" envoyée par le modal JS
+    $id = !empty($post_data['id']) ? trim($post_data['id']) : uniqid();
 
     if ($action === 'add' || ($action === 'edit' && isset($tasks[$room][$id]))) {
         $raw_freq = $post_data['freq'] ?? 1;
@@ -473,7 +476,7 @@ function handle_task_ajax_request($tasks_file, $post_data) {
 
         $last_done_ts = !empty($post_data['last_done']) ? strtotime($post_data['last_done']) : time();
 
-        if ($action === 'add') {
+        if ($action === 'add' || !isset($tasks[$room][$id])) {
             $tasks[$room][$id] = [
                 'label' => trim($post_data['label']),
                 'effort' => max(1, min(5, (int)$post_data['effort'])),
@@ -498,11 +501,14 @@ function handle_task_ajax_request($tasks_file, $post_data) {
         unset($tasks[$room][$id]);
     }
 
-    file_put_contents($tasks_file, json_encode($tasks, JSON_PRETTY_PRINT));
+    file_put_contents($tasks_file, json_encode($tasks, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
     echo json_encode(['success' => true]);
     exit;
 }
 
+/**
+ * MOTEUR DE CALCUL DU SCORE DE PROPRETÉ A.S.H.E.S. v0.8 (Courbe de dégradation continue)
+ */
 function calculate_tasks_scores($rooms, $tasks_file) {
     $tasks_data = file_exists($tasks_file) ? json_decode(file_get_contents($tasks_file), true) : [];
     $global_score_accum = 0;
@@ -516,17 +522,39 @@ function calculate_tasks_scores($rooms, $tasks_file) {
         $r_score_accum = 0;
         $r_effort_accum = 0;
 
-        foreach ($room_tasks as $tid => $t) {
-            $days_elapsed = (time() - $t['last_done']) / 86400;
-            $ratio = min(1, max(0, $days_elapsed / $t['freq']));
-            $task_score = 100 * (1 - $ratio);
+        foreach ($room_tasks as $tid => &$t) {
+            $days_elapsed = max(0, (time() - $t['last_done']) / 86400);
+            $freq = max(1, (float)($t['freq'] ?? 1));
+            $ratio = $days_elapsed / $freq;
 
-            $r_score_accum += $task_score * $t['effort'];
-            $r_effort_accum += $t['effort'];
+            // 🟩 FORMULE A.S.H.E.S. V0.8 :
+            // Ratio <= 1.0 (Avant / A l'échéance) : Décroissance linéaire fluide de 100% à 50%
+            // Ratio > 1.0 (En retard) : Décroissance exponentielle amortie vers 0% sans rupture brutale
+            if ($ratio <= 1.0) {
+                $task_score = 100.0 * (1.0 - (0.5 * $ratio));
+            } else {
+                $task_score = 50.0 * exp(-1.2 * ($ratio - 1.0));
+            }
+
+            $task_score = max(0.0, min(100.0, round($task_score, 1)));
+            $t['current_score'] = $task_score;
+
+            $effort = max(1, (int)($t['effort'] ?? 1));
+            $r_score_accum += $task_score * $effort;
+            $r_effort_accum += $effort;
             
-            $global_score_accum += $task_score * $t['effort'];
-            $global_effort_accum += $t['effort'];
+            $global_score_accum += $task_score * $effort;
+            $global_effort_accum += $effort;
         }
+        unset($t);
+
+        // Tri ascendant : les tâches les plus dégradées / urgentes montent en premier
+        uasort($room_tasks, function($a, $b) {
+            if ($a['current_score'] == $b['current_score']) {
+                return $a['effort'] <=> $b['effort'];
+            }
+            return $a['current_score'] <=> $b['current_score'];
+        });
         
         $room_stats[$name] = [
             'score' => $r_effort_accum > 0 ? round($r_score_accum / $r_effort_accum) : 100,
@@ -535,7 +563,15 @@ function calculate_tasks_scores($rooms, $tasks_file) {
     }
 
     $gesamt_sauberkeit = $global_effort_accum > 0 ? round($global_score_accum / $global_effort_accum) : 100;
-    $color_gesamt = $gesamt_sauberkeit < 50 ? 'var(--red)' : ($gesamt_sauberkeit < 80 ? 'var(--orange)' : 'var(--green)');
+
+    // Échelle quadricolore A.S.H.E.S.
+    $color_gesamt = $gesamt_sauberkeit <= 10 
+        ? 'var(--red)' 
+        : ($gesamt_sauberkeit <= 25 
+            ? 'var(--orange)' 
+            : ($gesamt_sauberkeit <= 50 
+                ? 'var(--yellow)' 
+                : 'var(--green)'));
 
     return [
         'room_stats' => $room_stats,
@@ -543,3 +579,4 @@ function calculate_tasks_scores($rooms, $tasks_file) {
         'color_gesamt' => $color_gesamt
     ];
 }
+

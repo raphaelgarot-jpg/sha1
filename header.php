@@ -6,17 +6,14 @@ ini_set('display_startup_errors', 0);
 
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
 
-
-include("core/functions.php");
+require_once("core/functions.php");
 
 $config_path = 'config/home_structure.conf';
 if (!file_exists($config_path)) {
     die("Erreur : Fichier de configuration introuvable dans $config_path");
 }
 $rooms = parse_ini_file($config_path, true);
-
 ?>
-
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
@@ -25,19 +22,15 @@ $rooms = parse_ini_file($config_path, true);
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="A.S.H.E.S.">
     <link rel="apple-touch-icon" href="/assets/img/favicon.png">
-
-
     <link rel="apple-touch-icon-precomposed" href="/assets/img/favicon.png">
     <link rel="manifest" href="/sha/manifest.json">
     <title>A.S.H.E.S. v0.7</title>
 
     <link rel="icon" type="image/png" href="/assets/img/favicon.png">
     <link rel="stylesheet" href="assets/css/style.css?v=<?= filemtime(__DIR__ . '/assets/css/style.css') ?>">
-    
 
     <script src="core/functions.js"></script>
     <script>
-        // --- iOS REFRESH ON RESUME ---
         const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
 
         if (isIOS) {
@@ -48,14 +41,12 @@ $rooms = parse_ini_file($config_path, true);
             });
         }
 
-        // Nettoyage de la pastille rouge
         document.addEventListener("visibilitychange", () => {
             if (document.visibilityState === "visible" && typeof clearBadge === 'function') {
                 clearBadge();
             }
         });
 
-        // --- VERROU ABSOLU PLEIN ÉCRAN IOS ---
         if (("standalone" in window.navigator) && window.navigator.standalone) {
             document.addEventListener("click", function(e) {
                 let element = e.target;
@@ -73,7 +64,9 @@ $rooms = parse_ini_file($config_path, true);
     </script>
 </head>
 <body>
+
 <?php include("menu.php"); ?>
+
 <header class="sha-header">
     <div style="width: 35px;"></div>
     <div class="header-title"><span class="ashes-glossary">A.S.H.E.S.</span> v0.7</div>

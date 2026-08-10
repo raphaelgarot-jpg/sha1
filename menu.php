@@ -15,6 +15,7 @@
         <li class="separator"></li>
         <li><a href="#" onclick="subscribeUser(); return false;" style="color: var(--orange); font-weight: 900;"><span>🔔</span> NOTIFICATIONS</a></li>
         <li><a href="info.php"><span>ℹ️</span> INFO</a></li>
+        <li><a href="#" onclick="forcePurgeCache(); return false;" style="color: var(--red); font-weight: 900;"><span>🧹</span> VIDER CACHE S.H.A.</a></li>
     </ul>
 </nav>
 
