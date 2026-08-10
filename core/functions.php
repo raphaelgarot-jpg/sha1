@@ -506,9 +506,6 @@ function handle_task_ajax_request($tasks_file, $post_data) {
     exit;
 }
 
-/**
- * MOTEUR DE CALCUL DU SCORE DE PROPRETÉ A.S.H.E.S. v0.8 (Courbe de dégradation continue)
- */
 function calculate_tasks_scores($rooms, $tasks_file) {
     $tasks_data = file_exists($tasks_file) ? json_decode(file_get_contents($tasks_file), true) : [];
     $global_score_accum = 0;
@@ -517,7 +514,7 @@ function calculate_tasks_scores($rooms, $tasks_file) {
 
     foreach ($rooms as $name => $data) {
         if (in_array($name, ['System', 'Defaults'])) continue;
-        
+
         $room_tasks = $tasks_data[$name] ?? [];
         $r_score_accum = 0;
         $r_effort_accum = 0;
@@ -527,35 +524,28 @@ function calculate_tasks_scores($rooms, $tasks_file) {
             $freq = max(1, (float)($t['freq'] ?? 1));
             $ratio = $days_elapsed / $freq;
 
-            // 🟩 FORMULE A.S.H.E.S. V0.8 :
-            // Ratio <= 1.0 (Avant / A l'échéance) : Décroissance linéaire fluide de 100% à 50%
-            // Ratio > 1.0 (En retard) : Décroissance exponentielle amortie vers 0% sans rupture brutale
-            if ($ratio <= 1.0) {
-                $task_score = 100.0 * (1.0 - (0.5 * $ratio));
-            } else {
-                $task_score = 50.0 * exp(-1.2 * ($ratio - 1.0));
-            }
+            // Formule sans la borne min à 0 (Gestion des retards cumulés / Dette)
+            $task_score = round(100 * (1 - $ratio));
 
-            $task_score = max(0.0, min(100.0, round($task_score, 1)));
             $t['current_score'] = $task_score;
-
             $effort = max(1, (int)($t['effort'] ?? 1));
+
             $r_score_accum += $task_score * $effort;
             $r_effort_accum += $effort;
-            
+
             $global_score_accum += $task_score * $effort;
             $global_effort_accum += $effort;
         }
         unset($t);
 
-        // Tri ascendant : les tâches les plus dégradées / urgentes montent en premier
+        // Tri ascendant : les plus gros retards (scores négatifs) montent en premier
         uasort($room_tasks, function($a, $b) {
             if ($a['current_score'] == $b['current_score']) {
                 return $a['effort'] <=> $b['effort'];
             }
             return $a['current_score'] <=> $b['current_score'];
         });
-        
+
         $room_stats[$name] = [
             'score' => $r_effort_accum > 0 ? round($r_score_accum / $r_effort_accum) : 100,
             'tasks' => $room_tasks
@@ -564,8 +554,7 @@ function calculate_tasks_scores($rooms, $tasks_file) {
 
     $gesamt_sauberkeit = $global_effort_accum > 0 ? round($global_score_accum / $global_effort_accum) : 100;
 
-    // Échelle quadricolore A.S.H.E.S.
-    $color_gesamt = $gesamt_sauberkeit <= 10 
+    $color_gesamt = $gesamt_sauberkeit <= 0 
         ? 'var(--red)' 
         : ($gesamt_sauberkeit <= 25 
             ? 'var(--orange)' 

@@ -26,8 +26,8 @@ if (empty($todays_suggestions) && file_exists($tasks_file)) {
     foreach ($all_tasks as $room => $tasks) {
         foreach ($tasks as $tid => $t) {
             $days_elapsed = (time() - $t['last_done']) / 86400;
-            $ratio = min(1, max(0, $days_elapsed / $t['freq']));
-            $score = 100 * (1 - $ratio);
+            $freq = max(1, (float)($t['freq'] ?? 1));
+            $score = round(100 * (1 - ($days_elapsed / $freq)));
 
             $flat_tasks[] = [
                 'room' => $room,
@@ -42,7 +42,7 @@ if (empty($todays_suggestions) && file_exists($tasks_file)) {
 
     if (!empty($flat_tasks)) {
         $easy_tasks = array_filter($flat_tasks, fn($t) => $t['effort'] <= 2);
-        $hard_tasks = array_filter($flat_tasks, fn($t) => $t['effort'] >= 4 || $t['score'] < 30);
+        $hard_tasks = array_filter($flat_tasks, fn($t) => $t['effort'] >= 4 || $t['score'] <= 0);
 
         usort($easy_tasks, fn($a, $b) => $a['score'] <=> $b['score']);
         usort($hard_tasks, fn($a, $b) => $a['score'] <=> $b['score']);
@@ -68,7 +68,7 @@ if (empty($todays_suggestions) && file_exists($tasks_file)) {
 // --- 3. CHARGEMENT DU HEADER ET DU DOM W3C ---
 include("header.php");
 
-// --- 4. MOTEUR DE CALCUL CENTRALISÉ ---
+// --- 4. MOTEUR DE CALCUL CENTRALISÉ (Dette Domestique - Scores Négatifs) ---
 $conf_file = file_exists('conf/home_structure.conf') ? 'conf/home_structure.conf' : 'config/home_structure.conf';
 $rooms_conf = file_exists($conf_file) ? parse_ini_file($conf_file, true) : [];
 
@@ -79,23 +79,26 @@ $room_stats = [];
 
 foreach ($rooms_conf as $name => $data) {
     if (in_array($name, ['System', 'Defaults'])) continue;
-    
+
     $room_tasks = $tasks_data[$name] ?? [];
     $r_score_accum = 0;
     $r_effort_accum = 0;
 
     foreach ($room_tasks as $tid => &$t) {
-        $days_elapsed = (time() - $t['last_done']) / 86400;
-        $ratio = min(1, max(0, $days_elapsed / $t['freq']));
-        $task_score = 100 * (1 - $ratio);
-        
-        $t['current_score'] = $task_score;
+        $days_elapsed = max(0, (time() - $t['last_done']) / 86400);
+        $freq = max(1, (float)($t['freq'] ?? 1));
+        $ratio = $days_elapsed / $freq;
 
-        $r_score_accum += $task_score * $t['effort'];
-        $r_effort_accum += $t['effort'];
-        
-        $global_score_accum += $task_score * $t['effort'];
-        $global_effort_accum += $t['effort'];
+        $task_score = round(100 * (1 - $ratio));
+
+        $t['current_score'] = $task_score;
+        $effort = max(1, (int)($t['effort'] ?? 1));
+
+        $r_score_accum += $task_score * $effort;
+        $r_effort_accum += $effort;
+
+        $global_score_accum += $task_score * $effort;
+        $global_effort_accum += $effort;
     }
     unset($t);
 
@@ -105,7 +108,7 @@ foreach ($rooms_conf as $name => $data) {
         }
         return $a['current_score'] <=> $b['current_score'];
     });
-    
+
     $room_stats[$name] = [
         'score' => $r_effort_accum > 0 ? round($r_score_accum / $r_effort_accum) : 100,
         'tasks' => $room_tasks
@@ -114,12 +117,13 @@ foreach ($rooms_conf as $name => $data) {
 
 $gesamt_sauberkeit = $global_effort_accum > 0 ? round($global_score_accum / $global_effort_accum) : 100;
 
-// Fonction de calcul quadricolore A.S.H.E.S.
-function get_task_status_color($score) {
-    if ($score <= 10) return 'var(--red)';
-    if ($score <= 25) return 'var(--orange)';
-    if ($score <= 50) return 'var(--yellow)';
-    return 'var(--green)';
+if (!function_exists('get_task_status_color')) {
+    function get_task_status_color($score) {
+        if ($score <= 0) return 'var(--red)';
+        if ($score <= 25) return 'var(--orange)';
+        if ($score <= 50) return 'var(--yellow)';
+        return 'var(--green)';
+    }
 }
 
 $color_gesamt = get_task_status_color($gesamt_sauberkeit);
@@ -128,13 +132,15 @@ $color_gesamt = get_task_status_color($gesamt_sauberkeit);
 <div class="container">
     <div class="room-card task-global-card" style="border-color: <?= $color_gesamt ?>; border-top-color: <?= $color_gesamt ?>;">
         <div class="task-global-header">
-            <div class="room-title task-global-title" style="color: <?= $color_gesamt ?>;"><span>🧹</span> GESAMTSAUBERKEIT</div>
+            <div class="room-title task-global-title" style="color: <?= $color_gesamt ?>;">
+                <span>🧹</span> GESAMTSAUBERKEIT <?= ($gesamt_sauberkeit < 0) ? '<small style="color: var(--red); font-size: 0.75rem;">(DETTE)</small>' : '' ?>
+            </div>
             <div class="task-global-score" style="color: <?= $color_gesamt ?>;">
                 <?= $gesamt_sauberkeit ?> <small>%</small>
             </div>
-            <!-- BARRE GLOBALE : Ajout de critical-alert-border si <= 5% -->
-            <div class="task-progress-bg <?= ($gesamt_sauberkeit <= 5) ? 'critical-alert-border' : '' ?>">
-                <div class="task-progress-fill" style="width: <?= $gesamt_sauberkeit ?>%; background: <?= $color_gesamt ?>;"></div>
+            <!-- BARRE GLOBALE : Liseré si <= 0% et Fond hachuré si < 0% -->
+            <div class="task-progress-bg <?= ($gesamt_sauberkeit <= 0) ? 'critical-alert-border' : '' ?> <?= ($gesamt_sauberkeit < 0) ? 'task-negative-progress' : '' ?>">
+                <div class="task-progress-fill" style="width: <?= max(0, min(100, $gesamt_sauberkeit)) ?>%; background: <?= $color_gesamt ?>;"></div>
             </div>
         </div>
 
@@ -154,7 +160,7 @@ $color_gesamt = get_task_status_color($gesamt_sauberkeit);
     </div>
 
     <div class="sha-main-grid">
-    <?php 
+    <?php
     $display_rooms = [];
     $other_rooms = [];
 
@@ -176,7 +182,7 @@ $color_gesamt = get_task_status_color($gesamt_sauberkeit);
     $display_rooms += $other_rooms;
     $unit_labels = ['d' => 'j', 'w' => 'sem', 'm' => 'm'];
 
-    foreach ($display_rooms as $name => $data): 
+    foreach ($display_rooms as $name => $data):
         $stats = $room_stats[$name] ?? ['score' => 100, 'tasks' => []];
         $score = $stats['score'];
         $color_room = get_task_status_color($score);
@@ -187,9 +193,9 @@ $color_gesamt = get_task_status_color($gesamt_sauberkeit);
                 <div class="room-title task-title-nowrap">
                     <span><?= $data['icon'] ?? '🏠' ?></span> <?= strtoupper($name) ?>
                 </div>
-                <!-- BARRE PIÈCE : Ajout de critical-alert-border si <= 5% -->
-                <div class="task-progress-bar-wrapper <?= ($score <= 5) ? 'critical-alert-border' : '' ?>">
-                    <div class="task-progress-fill" style="width: <?= $score ?>%; background: <?= $color_room ?>;"></div>
+                <!-- BARRE PIÈCE : Liseré si <= 0% et Fond hachuré si < 0% -->
+                <div class="task-progress-bar-wrapper <?= ($score <= 0) ? 'critical-alert-border' : '' ?> <?= ($score < 0) ? 'task-negative-progress' : '' ?>">
+                    <div class="task-progress-fill" style="width: <?= max(0, min(100, $score)) ?>%; background: <?= $color_room ?>;"></div>
                     <span class="task-progress-percent">
                         <?= $score ?>%
                     </span>
@@ -198,17 +204,16 @@ $color_gesamt = get_task_status_color($gesamt_sauberkeit);
 
             <div class="room-body flex-column task-room-body">
                 <?php if (!empty($stats['tasks'])): ?>
-                    <?php foreach ($stats['tasks'] as $tid => $t): 
+                    <?php foreach ($stats['tasks'] as $tid => $t):
                         $days_elapsed = round((time() - $t['last_done']) / 86400, 1);
-                        $ratio = min(1, max(0, $days_elapsed / $t['freq']));
-                        $task_score = 100 * (1 - $ratio);
+                        $task_score = $t['current_score'] ?? 0;
                         $bar_color = get_task_status_color($task_score);
 
                         $comment_text = htmlspecialchars($t['comment'] ?? '', ENT_QUOTES);
                         $display_val = $t['freq_value'] ?? $t['freq'];
                         $raw_unit = $t['freq_unit'] ?? 'd';
                         $display_unit = $unit_labels[$raw_unit];
-                        
+
                         $js_label = htmlspecialchars(addslashes($t['label']), ENT_QUOTES);
                         $js_comment = htmlspecialchars(addslashes($t['comment'] ?? ''), ENT_QUOTES);
 
@@ -222,9 +227,10 @@ $color_gesamt = get_task_status_color($gesamt_sauberkeit);
                                         <span class="task-tooltip-wrapper">💬<span class="task-tooltip"><?= $comment_text ?></span></span>
                                     <?php endif; ?>
                                 </span>
+                                <!-- SOUS-TITRE ÉPURÉ SANS BADGE DE POURCENTAGE BRUT -->
                                 <span style="font-size: 0.75rem; color: #888; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-        <span class="task-stars"><?= $effort_stars ?></span> | 🔄 <?= $display_val . $display_unit ?> | ⌛ <?= $days_elapsed ?>j
-    </span>
+                                    <span class="task-stars"><?= $effort_stars ?></span> | 🔄 <?= $display_val . $display_unit ?> | ⌛ <?= $days_elapsed ?>j
+                                </span>
                             </div>
 
                             <div class="task-actions task-actions-responsive">
@@ -233,10 +239,10 @@ $color_gesamt = get_task_status_color($gesamt_sauberkeit);
                                     <button class="toggle-btn task-btn-responsive btn-edit-task" onclick="editTask('<?= $name ?>', '<?= $tid ?>', '<?= $js_label ?>', <?= $t['effort'] ?>, <?= $display_val ?>, '<?= $raw_unit ?>', '<?= $js_comment ?>', <?= $t['last_done'] ?>)" title="Modifier">✏️</button>
                                     <button class="toggle-btn btn-on task-btn-responsive" onclick="deleteTask('<?= $name ?>', '<?= $tid ?>')" title="Supprimer">🗑</button>
                                 </div>
-                                
-                                <!-- BARRE TÂCHE INDIVIDUELLE : Ajout de critical-alert-border si <= 5% -->
-                                <div class="task-mini-bar-bg <?= ($task_score <= 5) ? 'critical-alert-border' : '' ?>">
-                                    <div class="task-progress-fill" style="width: <?= $task_score ?>%; background: <?= $bar_color ?>;"></div>
+
+                                <!-- MINI-BARRE TÂCHE : Liseré si <= 0% et Fond hachuré noir/rouge si < 0% -->
+                                <div class="task-mini-bar-bg <?= ($task_score <= 0) ? 'critical-alert-border' : '' ?> <?= ($task_score < 0) ? 'task-negative-progress' : '' ?>">
+                                    <div class="task-progress-fill" style="width: <?= max(0, min(100, $task_score)) ?>%; background: <?= $bar_color ?>;"></div>
                                 </div>
                             </div>
                         </div>
@@ -262,12 +268,12 @@ $color_gesamt = get_task_status_color($gesamt_sauberkeit);
             <input type="hidden" id="modalAction" name="action" value="add">
             <input type="hidden" id="modalRoom" name="room" value="">
             <input type="hidden" id="modalId" name="id" value="">
-            
+
             <div class="task-modal-form-group">
                 <label class="task-modal-label">Titre :</label>
                 <input type="text" id="modalLabel" name="label" required class="task-modal-input">
             </div>
-            
+
             <div class="task-modal-row">
                 <div class="task-modal-col">
                     <label class="task-modal-label">Effort (1-5) :</label>
@@ -295,7 +301,7 @@ $color_gesamt = get_task_status_color($gesamt_sauberkeit);
                 <label class="task-modal-label">Commentaire (optionnel) :</label>
                 <input type="text" id="modalComment" name="comment" class="task-modal-input">
             </div>
-            
+
             <div class="task-modal-actions">
                 <button type="button" class="toggle-btn btn-modal-cancel" onclick="toggleTaskModal(false)">Annuler</button>
                 <button type="submit" class="toggle-btn btn-off btn-modal-submit">Enregistrer</button>

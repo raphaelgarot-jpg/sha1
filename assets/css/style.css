@@ -1070,3 +1070,14 @@ body {
     letter-spacing: -1px;
     line-height: 1;
 }
+
+/* --- MOTIF HACHURÉ NOIR / ROUGE POUR SCORES NÉGATIFS (< 0%) --- */
+.task-negative-progress {
+    background: repeating-linear-gradient(
+        135deg,
+        #111111,
+        #111111 6px,
+        #b71c1c 6px,
+        #b71c1c 12px
+    ) !important;
+}
