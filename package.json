@@ -1,5 +1,6 @@
 {
   "dependencies": {
-    "maxcube": "^1.0.6"
+    "maxcube": "^1.0.6",
+    "maxcube-cli": "github:ivesdebruycker/maxcube-cli"
   }
 }

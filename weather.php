@@ -153,7 +153,7 @@ if (isset($netatmo['Aussen'])) {
         </div>
         <div style="display: flex; align-items: center; gap: 10px;">
             <span class="badge badge-yellow">Δ <?= $ecart; ?>°C</span>
-            <span class="badge badge-blue">Cloud Forecast</span>
+            <span class="badge badge-blue">Prévisions</span>
         </div>
     </div>
     <div class="weather-body">
@@ -203,13 +203,13 @@ if (isset($netatmo['Aussen'])) {
             $is_garten = ($raw === 'Aussen');
             if ($is_garten) {
                 $displayName = 'STATION S.H.A.';
-                $badgeText = 'Module Outdoor';
+                $badgeText = 'Extérieur';
                 $badgeClass = 'badge-blue';
                 // Lecture dynamique depuis la section [Garten] ou [Haus] de home_structure.conf
                 $icon = $rooms['Garten']['icon'] ?? $rooms['Haus']['icon'] ?? '🏡';
                 $card_extra_class = 'weather-card-outdoor'; // 🟩 LIGNE À AJOUTER
             } else {
-                $badgeText = 'Module ' . htmlspecialchars($type);
+                $badgeText = 'Intérieur';
                 $badgeClass = 'badge-blue';
                 // Lecture dynamique directement depuis le nom de la pièce correspondant dans home_structure.conf
                 $icon = $rooms[$displayName]['icon'] ?? '🌡️';
