@@ -4,7 +4,7 @@ import json
 import requests
 import configparser
 
-# --- DÉTECTION DYNAMIQUE DE LA RACINE DU PROJET (RÉSOUT LE CONFLIT DE CHEMIN) ---
+# --- DÉTECTION DYNAMIQUE DE LA RACINE DU PROJET ---
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 SHA_ROOT = os.path.dirname(SCRIPT_DIR)
 
@@ -119,27 +119,35 @@ def fetch_data():
 
         for s in devices:
             d = s.get('dashboard_data', {})
+            # Station principale (Secteur -> battery_percent mis à 100 par défaut)
             weather_list.append({
                 "name": s.get('station_name', 'Salon'),
                 "type": "Indoor",
                 "temp": d.get('Temperature', 0),
                 "hum": d.get('Humidity', 0),
                 "co2": d.get('CO2'),
-                "pres": d.get('Pressure')
+                "pres": d.get('Pressure'),
+                "battery": s.get('battery_percent', 100)
             })
 
+            # Modules satellites (Sur piles)
             for m in s.get('modules', []):
                 md = m.get('dashboard_data', {})
                 if not md:
                     continue
 
                 m_type = "Outdoor" if m.get('type') == "NAModule1" else "Indoor"
+                
+                # Extraction du pourcentage de batterie envoyé par l'API Netatmo
+                battery_pct = m.get('battery_percent', 100)
+
                 weather_list.append({
                     "name": m.get('module_name', 'Module'),
                     "type": m_type,
                     "temp": md.get('Temperature', 0),
                     "hum": md.get('Humidity', 0),
-                    "co2": md.get('CO2')
+                    "co2": md.get('CO2'),
+                    "battery": battery_pct
                 })
 
         # Écriture atomique dans data/weather.json

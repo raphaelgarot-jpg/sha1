@@ -199,21 +199,20 @@ if (isset($netatmo['Aussen'])) {
             $hum = $mod['hum'] ?? '--';
             $co2 = $mod['co2'] ?? null;
             $dew = $mod['dew'] ?? null;
+            $battery = isset($mod['battery']) ? (int)$mod['battery'] : null;
 
             $is_garten = ($raw === 'Aussen');
             if ($is_garten) {
                 $displayName = 'STATION S.H.A.';
                 $badgeText = 'Extérieur';
                 $badgeClass = 'badge-blue';
-                // Lecture dynamique depuis la section [Garten] ou [Haus] de home_structure.conf
                 $icon = $rooms['Garten']['icon'] ?? $rooms['Haus']['icon'] ?? '🏡';
-                $card_extra_class = 'weather-card-outdoor'; // 🟩 LIGNE À AJOUTER
+                $card_extra_class = 'weather-card-outdoor';
             } else {
                 $badgeText = 'Intérieur';
                 $badgeClass = 'badge-blue';
-                // Lecture dynamique directement depuis le nom de la pièce correspondant dans home_structure.conf
                 $icon = $rooms[$displayName]['icon'] ?? '🌡️';
-                $card_extra_class = ''; // 🟩 LIGNE À AJOUTER
+                $card_extra_class = '';
             }
         ?>
         <div class="room-card weather-card <?= $card_extra_class; ?>">
@@ -231,6 +230,11 @@ if (isset($netatmo['Aussen'])) {
                     <div class="badge-info badge-blue">💧 HUM: <?= $hum; ?>%</div>
                     <?php if (!empty($co2)): ?>
                     <div class="badge-info <?= ($co2 > 1000) ? 'badge-orange' : ''; ?>">CO2: <?= $co2; ?> ppm</div>
+                    <?php endif; ?>
+                    <?php if ($battery !== null): ?>
+                    <div class="badge-info <?= ($battery <= 20) ? 'badge-orange' : ''; ?>">
+                        <?= ($battery <= 20) ? '🪫' : '🔋'; ?> <?= $battery; ?>%
+                    </div>
                     <?php endif; ?>
                     <?php if ($is_garten): ?>
                     <div class="badge-info">📍 Sangenstedt</div>
