@@ -199,7 +199,7 @@ if (isset($netatmo['Aussen'])) {
             $hum = $mod['hum'] ?? '--';
             $co2 = $mod['co2'] ?? null;
             $dew = $mod['dew'] ?? null;
-            $battery = isset($mod['battery']) ? (int)$mod['battery'] : null;
+            $battery = ($displayName === 'Esszimmer' || $raw === 'Station (Innen)') ? null : (isset($mod['battery']) ? (int)$mod['battery'] : null);
 
             $is_garten = ($raw === 'Aussen');
             if ($is_garten) {
@@ -231,13 +231,13 @@ if (isset($netatmo['Aussen'])) {
                     <?php if (!empty($co2)): ?>
                     <div class="badge-info <?= ($co2 > 1000) ? 'badge-orange' : ''; ?>">CO2: <?= $co2; ?> ppm</div>
                     <?php endif; ?>
+                    <?php if ($is_garten): ?>
+                    <div class="badge-info">📍 Sangenstedt</div>
+                    <?php endif; ?>
                     <?php if ($battery !== null): ?>
                     <div class="badge-info <?= ($battery <= 20) ? 'badge-orange' : ''; ?>">
                         <?= ($battery <= 20) ? '🪫' : '🔋'; ?> <?= $battery; ?>%
                     </div>
-                    <?php endif; ?>
-                    <?php if ($is_garten): ?>
-                    <div class="badge-info">📍 Sangenstedt</div>
                     <?php endif; ?>
                 </div>
             </div>

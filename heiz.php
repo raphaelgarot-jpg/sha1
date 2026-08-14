@@ -6,34 +6,42 @@ require_once("core/functions.php");
 // Contrôleur des requêtes d'action Cube
 handle_heating_action();
 
-// --- 1. FILTRAGE DES PIÈCES DE LA STRUCTURE ---
+// --- 1. FILTRAGE DES PIÈCES DE LA STRUCTURE (CHAUFFAGE & CLIMATISATION) ---
 $heizung_rooms = [];
 foreach ($rooms as $name => $data) {
     if ($name == 'System' || $name == 'Defaults') continue;
     
-    $has_heizung = false;
+    $has_climate = false;
     if (isset($data['heizung_id']) && trim($data['heizung_id']) !== 'None' && trim($data['heizung_id']) !== '') {
-        $has_heizung = true;
+        $has_climate = true;
     }
-    if (!$has_heizung && !empty($data['devices'])) {
+    if (!$has_climate && !empty($data['devices'])) {
         foreach ($data['devices'] as $dev) {
-            if (strpos($dev, 'heizung|') !== false) { $has_heizung = true; break; }
+            if (strpos($dev, 'heizung|') !== false || strpos($dev, 'klima|') !== false) { 
+                $has_climate = true; 
+                break; 
+            }
         }
     }
-    if ($has_heizung) {
+    if ($has_climate) {
         $heizung_rooms[$name] = $data;
     }
 }
 
+// 1. Télémétrie MAX! Cube
 $cube_live = get_maxcube_live_data();
 $system_status = $cube_live['system'];
 $live_devices = $cube_live['devices'];
+
+// 2. Télémétrie Live RAM (MQTT / Daikin / Tasmota)
+$sha_live = get_sha_live_cache();
+$sha_devices = $sha_live['devices'] ?? [];
 ?>
 
 <main class="container">
     <div class="room-card" style="margin-bottom: 25px; border: 1px solid rgba(255, 145, 0, 0.25); border-top: 3px solid var(--orange); padding: 20px; display: flex; flex-direction: column; gap: 15px; box-shadow: 0 6px 15px rgba(0,0,0,0.15);">
         <div class="room-title" style="justify-content: center; color: var(--orange); text-shadow: 0 0 10px rgba(255, 145, 0, 0.15); margin: 0;">
-            <span>♨️</span> HEIZUNG
+            <span>♨️</span> HEIZUNG & KLIMA
         </div>
         <div style="display: flex; gap: 20px; justify-content: space-between; align-items: center; flex-wrap: wrap;">
             <div style="color: #fff; font-size: 0.75rem; font-weight: 700; display: flex; align-items: center; gap: 15px; flex-wrap: wrap;">
@@ -53,6 +61,7 @@ $live_devices = $cube_live['devices'];
     <div class="room-grid">
         <?php foreach ($heizung_rooms as $name => $data):
             $room_thermostats = [];
+            $room_klimas = [];
             $target_id = isset($data['heizung_id']) ? trim($data['heizung_id']) : '';
             
             $cube_room_name = '';
@@ -74,6 +83,7 @@ $live_devices = $cube_live['devices'];
                 ];
             }
 
+            // Extraction hybride : Vannes MAX! Cube + Climatiseurs Daikin
             if (!empty($data['devices'])) {
                 foreach ($data['devices'] as $conf_dev) {
                     if (strpos($conf_dev, 'heizung|') !== false) {
@@ -83,6 +93,16 @@ $live_devices = $cube_live['devices'];
                             $room_thermostats[$sub_rf] = [
                                 'id'        => $sub_rf,
                                 'cube_room' => $cube_room_name
+                            ];
+                        }
+                    } elseif (strpos($conf_dev, 'klima|') !== false) {
+                        $parts = explode('|', $conf_dev);
+                        if (count($parts) >= 2) {
+                            $room_klimas[] = [
+                                'ip'    => trim($parts[1]),
+                                'relay' => trim($parts[2] ?? '1'),
+                                'label' => trim($parts[3] ?? 'Klimaanlage'),
+                                'icon'  => trim($parts[4] ?? '❄️')
                             ];
                         }
                     }
@@ -96,6 +116,7 @@ $live_devices = $cube_live['devices'];
                     </div>
                 </div>
                 <div class="room-body heating-room-body">
+                    <!-- 1. BLOC VANNES MAX! CUBE -->
                     <?php foreach ($room_thermostats as $lookup_key => $th_conf):
                         $lookup_key = strtolower($lookup_key);
                         $live_dev = $live_devices[$lookup_key] ?? null;
@@ -174,6 +195,83 @@ $live_devices = $cube_live['devices'];
                                 <?php endif; ?>
                             </div>
 
+                        </div>
+                    <?php endforeach; ?>
+
+                    <!-- 2. BLOC CLIMATISATION DAIKIN (KLIMA) -->
+                    <?php foreach ($room_klimas as $klima):
+                        $k_ip = $klima['ip'];
+                        $k_dev = $sha_devices[$k_ip] ?? null;
+
+                        $is_online = ($k_dev !== null && abs(time() - ($k_dev['last_seen'] ?? 0)) < 600);
+                        $k_state = strtoupper($k_dev['state'] ?? 'OFF');
+                        $is_on = ($k_state === 'ON');
+
+                        $k_ist = isset($k_dev['room_temp']) ? $k_dev['room_temp'] : (isset($k_dev['temperature']) && $k_dev['temperature'] != 154 ? $k_dev['temperature'] : '--');
+                        $k_soll = isset($k_dev['soll']) ? floatval($k_dev['soll']) : (isset($k_dev['target_temp']) ? floatval($k_dev['target_temp']) : 21.0);
+                        $k_mode = strtoupper($k_dev['mode'] ?? ($is_on ? 'COOL' : 'OFF'));
+                        $k_power = isset($k_dev['power']) ? round($k_dev['power']) : null;
+
+                        $k_status_color = $is_on ? 'var(--green)' : '#8e7d7b';
+                        if (!$is_online) $k_status_color = 'var(--red)';
+                    ?>
+                        <div class="heating-valve-block" style="border-color: <?= $is_on ? 'rgba(0, 230, 118, 0.3)' : 'var(--border)' ?>;">
+                            <div class="valve-status-line" style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                                <div style="font-weight: 800; font-size: 0.75rem; color: #fff; display: flex; align-items: center; gap: 6px;">
+                                    <span><?= htmlspecialchars($klima['icon']) ?></span>
+                                    <span><?= strtoupper(htmlspecialchars($klima['label'])) ?></span>
+                                </div>
+                                <div style="display: flex; align-items: center; gap: 6px;">
+                                    <?php if ($k_power !== null && $k_power > 0): ?>
+                                        <span class="badge badge-blue" style="font-size: 0.6rem; padding: 2px 6px;">⚡ <?= $k_power ?>W</span>
+                                    <?php endif; ?>
+                                    <span class="valve-status-indicator" style="color: <?= $k_status_color ?>;">
+                                        • <?= !$is_online ? 'OFFLINE' : ($is_on ? $k_mode : 'OFF'); ?>
+                                    </span>
+                                    <?php if (!$is_online): ?><span style="color:var(--red);">⚠️</span><?php endif; ?>
+                                </div>
+                            </div>
+
+                            <?php if (!$is_online): ?>
+                                <div style="font-size: 0.65rem; color: var(--red); background: rgba(255, 23, 68, 0.05); padding: 5px 10px; border-radius: var(--radius-sm); text-align: center; border: 1px dashed rgba(255, 23, 68, 0.2); font-weight: 700; letter-spacing: 0.2px;">
+                                    ⚠️ Climatisation non joignable (Hors ligne)
+                                </div>
+                            <?php endif; ?>
+
+                            <div class="display-box-temp" <?= !$is_online ? 'style="opacity: 0.6;"' : '' ?>>
+                                <div class="temp-segment">
+                                    <div class="label-min-temp">IST (PIÈCE)</div>
+                                    <div class="val-ist"><?= $k_ist; ?><?= is_numeric($k_ist) ? '°' : '' ?></div>
+                                </div>
+                                <div class="temp-segment">
+                                    <div class="label-min-temp">CONSIGNE</div>
+                                    <div class="val-soll"><?= number_format($k_soll, 1); ?>°</div>
+                                </div>
+                            </div>
+
+                            <div class="control-row" style="display: flex; gap: 8px; align-items: center;">
+                                <select class="select-sha-temp" <?php if(!$is_online) echo 'disabled'; ?>>
+                                    <?php for($i = 16.0; $i <= 30.0; $i += 0.5):
+                                        $v = number_format($i, 1, '.', '');
+                                        $sel = (abs((float)$v - (float)$k_soll) < 0.1) ? 'selected' : '';
+                                        echo "<option value='$v' $sel>$v °C</option>";
+                                    endfor; ?>
+                                </select>
+                                
+                                <button type="button" onclick="setRoomTemperature('klima_<?= $k_ip; ?>', this.previousElementSibling.value, event)" class="btn-ok-temp" <?php if(!$is_online) echo 'disabled'; ?>>OK</button>
+
+                                <button type="button" 
+                                        class="toggle-btn <?= $is_on ? 'btn-on' : 'btn-off' ?>" 
+                                        data-type="klima" 
+                                        data-ip="<?= $k_ip ?>" 
+                                        data-relay="<?= $klima['relay'] ?>" 
+                                        data-state="<?= $k_state ?>" 
+                                        data-label="<?= htmlspecialchars($klima['label'], ENT_QUOTES) ?>"
+                                        style="min-width: 70px; height: 34px; padding: 0 10px;"
+                                        <?php if(!$is_online) echo 'disabled'; ?>>
+                                    <?= $is_on ? 'OFF' : 'ON' ?>
+                                </button>
+                            </div>
                         </div>
                     <?php endforeach; ?>
                 </div>
