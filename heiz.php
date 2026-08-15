@@ -1,12 +1,12 @@
 <?php
-ob_start(); // 🟩 ZONE MODIFIÉE : Bloque le HTML de header.php lors des requêtes AJAX
+ob_start();
 include("header.php");
 require_once("core/functions.php");
 
-// Contrôleur des requêtes d'action Cube
+// Contrôleur des commandes AJAX et tickets
 handle_heating_action();
 
-// --- 1. FILTRAGE DES PIÈCES DE LA STRUCTURE (CHAUFFAGE & CLIMATISATION) ---
+// --- 1. FILTRAGE DES PIÈCES COMPORTANT DU CHAUFFAGE, CONTACTS OU CLIM ---
 $heizung_rooms = [];
 foreach ($rooms as $name => $data) {
     if ($name == 'System' || $name == 'Defaults') continue;
@@ -17,7 +17,7 @@ foreach ($rooms as $name => $data) {
     }
     if (!$has_climate && !empty($data['devices'])) {
         foreach ($data['devices'] as $dev) {
-            if (strpos($dev, 'heizung|') !== false || strpos($dev, 'klima|') !== false) { 
+            if (strpos($dev, 'heizung|') !== false || strpos($dev, 'fensterkontakt|') !== false || strpos($dev, 'klima|') !== false) { 
                 $has_climate = true; 
                 break; 
             }
@@ -28,12 +28,12 @@ foreach ($rooms as $name => $data) {
     }
 }
 
-// 1. Télémétrie MAX! Cube
-$cube_live = get_maxcube_live_data();
-$system_status = $cube_live['system'];
-$live_devices = $cube_live['devices'];
+// 2. Télémétrie CUL (Cube 2 a-culfw) depuis data/heiz_cul_out.json
+$cul_live = get_maxcube_cul_live_data();
+$system_status = $cul_live['system'];
+$live_devices = $cul_live['devices'];
 
-// 2. Télémétrie Live RAM (MQTT / Daikin / Tasmota)
+// 3. Télémétrie Live RAM (Daikin / Tasmota / MQTT)
 $sha_live = get_sha_live_cache();
 $sha_devices = $sha_live['devices'] ?? [];
 ?>
@@ -45,14 +45,13 @@ $sha_devices = $sha_live['devices'] ?? [];
         </div>
         <div style="display: flex; gap: 20px; justify-content: space-between; align-items: center; flex-wrap: wrap;">
             <div style="color: #fff; font-size: 0.75rem; font-weight: 700; display: flex; align-items: center; gap: 15px; flex-wrap: wrap;">
-                <div>CUBE LOAD : <span style="color: <?= $system_status['duty_color']; ?>; font-weight: 900;"><?= $system_status['duty_val']; ?>%</span></div>
+                <div>CUBE 2 DUTY : <span style="color: <?= $system_status['duty_color']; ?>; font-weight: 900;"><?= $system_status['duty_val']; ?>%</span></div>
                 <div style="height: 15px; width: 1px; background: var(--border);"></div>
-                <div>RAM FREE SLOTS : <span style="color: #bcaaa4; font-weight: 900;"><?= $system_status['slots_val']; ?></span></div>
+                <div>MODEM : <span style="color: #bcaaa4; font-weight: 900;"><?= htmlspecialchars($system_status['firmware'] ?? 'a-culfw 868MHz'); ?></span></div>
                 <div style="height: 15px; width: 1px; background: var(--border);"></div>
                 <div>PROCHAINE MAJ : <span style="color: var(--green); font-weight: 900;"><?= $system_status['next_fmt']; ?></span></div>
             </div>
             <div style="display: flex; gap: 10px;">
-                <button onclick="location.href='heiz.php'" class="toggle-btn btn-off" style="min-width: 100px; font-weight: 900; text-transform: uppercase;">🔃 SOFT SCAN</button>
                 <button onclick="triggerScan()" class="toggle-btn btn-on" style="min-width: 130px; font-weight: 900; text-transform: uppercase;">🔄 HARD SCAN</button>
             </div>
         </div>
@@ -60,51 +59,63 @@ $sha_devices = $sha_live['devices'] ?? [];
 
     <div class="room-grid">
         <?php foreach ($heizung_rooms as $name => $data):
-            $room_thermostats = [];
+            $room_valves = [];
+            $room_windows = [];
             $room_klimas = [];
-            $target_id = isset($data['heizung_id']) ? trim($data['heizung_id']) : '';
-            
-            $cube_room_name = '';
-            $primary_rf_id = '';
 
-            if (!empty($target_id) && strcasecmp($target_id, 'None') !== 0) {
-                if (strpos($target_id, '|') !== false) {
-                    list($cube_room_name, $primary_rf_id) = explode('|', $target_id);
-                    $cube_room_name = trim($cube_room_name);
-                    $primary_rf_id = strtolower(trim($primary_rf_id));
-                } else {
-                    if (preg_match('/^[0-9a-fA-F]{6}$/', $target_id)) { $primary_rf_id = strtolower($target_id); } else { $cube_room_name = $target_id; }
+            // Compatibilité ancienne clé heizung_id = "NOM|rf" ou "rf"
+            if (isset($data['heizung_id']) && trim($data['heizung_id']) !== 'None' && trim($data['heizung_id']) !== '') {
+                $target_id = trim($data['heizung_id']);
+                $rf = (strpos($target_id, '|') !== false) ? explode('|', $target_id)[1] : $target_id;
+                $rf = strtolower(trim($rf));
+                if (!empty($rf)) {
+                    $room_valves[$rf] = [
+                        'rf'    => $rf,
+                        'label' => 'Thermostat ' . $name,
+                        'icon'  => '🔥'
+                    ];
                 }
-
-                $final_key = !empty($primary_rf_id) ? $primary_rf_id : $target_id;
-                $room_thermostats[$final_key] = [
-                    'id'        => $primary_rf_id,
-                    'cube_room' => $cube_room_name
-                ];
             }
 
-            // Extraction hybride : Vannes MAX! Cube + Climatiseurs Daikin
+            // Parsing normalisé des devices déclarés sous la pièce
             if (!empty($data['devices'])) {
                 foreach ($data['devices'] as $conf_dev) {
-                    if (strpos($conf_dev, 'heizung|') !== false) {
-                        $parts = explode('|', $conf_dev);
-                        if (count($parts) >= 2) {
-                            $sub_rf = strtolower(trim($parts[1]));
-                            $room_thermostats[$sub_rf] = [
-                                'id'        => $sub_rf,
-                                'cube_room' => $cube_room_name
-                            ];
+                    $parts = explode('|', $conf_dev);
+                    $type = trim($parts[0] ?? '');
+                    
+                    if ($type === 'heizung' && count($parts) >= 2) {
+                        $rf = strtolower(trim($parts[1]));
+                        $label = trim($parts[2] ?? ('Thermostat ' . $name));
+                        $icon = trim($parts[3] ?? '🔥');
+                        if (count($parts) >= 5) {
+                            $label = trim($parts[3]);
+                            $icon = trim($parts[4]);
                         }
-                    } elseif (strpos($conf_dev, 'klima|') !== false) {
-                        $parts = explode('|', $conf_dev);
-                        if (count($parts) >= 2) {
-                            $room_klimas[] = [
-                                'ip'    => trim($parts[1]),
-                                'relay' => trim($parts[2] ?? '1'),
-                                'label' => trim($parts[3] ?? 'Klimaanlage'),
-                                'icon'  => trim($parts[4] ?? '❄️')
-                            ];
+                        $room_valves[$rf] = [
+                            'rf'    => $rf,
+                            'label' => $label,
+                            'icon'  => $icon
+                        ];
+                    } elseif ($type === 'fensterkontakt' && count($parts) >= 2) {
+                        $rf = strtolower(trim($parts[1]));
+                        $label = trim($parts[2] ?? ('Fenster ' . $name));
+                        $icon = trim($parts[3] ?? '🪟');
+                        if (count($parts) >= 5) {
+                            $label = trim($parts[3]);
+                            $icon = trim($parts[4]);
                         }
+                        $room_windows[$rf] = [
+                            'rf'    => $rf,
+                            'label' => $label,
+                            'icon'  => $icon
+                        ];
+                    } elseif ($type === 'klima' && count($parts) >= 2) {
+                        $room_klimas[] = [
+                            'ip'    => trim($parts[1]),
+                            'relay' => trim($parts[2] ?? '1'),
+                            'label' => trim($parts[3] ?? 'Klimaanlage'),
+                            'icon'  => trim($parts[4] ?? '❄️')
+                        ];
                     }
                 }
             }
@@ -116,31 +127,49 @@ $sha_devices = $sha_live['devices'] ?? [];
                     </div>
                 </div>
                 <div class="room-body heating-room-body">
-                    <!-- 1. BLOC VANNES MAX! CUBE -->
-                    <?php foreach ($room_thermostats as $lookup_key => $th_conf):
-                        $lookup_key = strtolower($lookup_key);
-                        $live_dev = $live_devices[$lookup_key] ?? null;
+                    
+                    <!-- 1. BLOC CONTACTS DE FENÊTRE -->
+                    <?php if (!empty($room_windows)): ?>
+                        <?php foreach ($room_windows as $rf => $w_conf):
+                            $w_live = $live_devices[$rf] ?? null;
+                            $is_open = $w_live ? ($w_live['is_open'] ?? false) : false;
+                            $is_batt_low = $w_live ? ($w_live['batt'] ?? false) : false;
+                            $no_data = ($w_live === null);
+                        ?>
+                            <div class="dev-row" style="padding: 6px 10px; border-radius: var(--radius-sm); background: rgba(0,0,0,0.15); margin-bottom: 5px;">
+                                <div style="display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 0.8rem; color: #fff;">
+                                    <span><?= htmlspecialchars($w_conf['icon']) ?></span>
+                                    <span><?= htmlspecialchars($w_conf['label']) ?></span>
+                                </div>
+                                <div style="display: flex; align-items: center; gap: 6px;">
+                                    <?php if (!$no_data): ?>
+                                        <?php if ($is_batt_low): ?>
+                                            <span style="color: var(--solar);" title="Batterie faible">🪫</span>
+                                        <?php else: ?>
+                                            <span style="color: var(--green);" title="Batterie OK">🔋</span>
+                                        <?php endif; ?>
+                                    <?php endif; ?>
+                                    <span class="badge" style="background: <?= $no_data ? 'rgba(255,23,68,0.15)' : ($is_open ? 'rgba(255,69,0,0.2)' : 'rgba(0,230,118,0.15)') ?>; color: <?= $no_data ? 'var(--red)' : ($is_open ? 'var(--accent)' : 'var(--green)') ?>; border: 1px solid currentColor;">
+                                        <?= $no_data ? 'STANDBY' : ($is_open ? 'OUVERT 🪟' : 'FERMÉ 🔒') ?>
+                                    </span>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
 
-                        if (!$live_dev && !empty($th_conf['cube_room'])) {
-                            foreach ($live_devices as $rf_key => $ldev) {
-                                if (strcasecmp($ldev['room'], $th_conf['cube_room']) === 0) { $live_dev = $ldev; $lookup_key = strtolower($rf_key); break; }
-                            }
-                        }
-                        if (!$live_dev) {
-                            foreach ($live_devices as $rf_key => $ldev) {
-                                if (strcasecmp($ldev['room'], $name) === 0) { $live_dev = $ldev; $lookup_key = strtolower($rf_key); break; }
-                            }
-                        }
-
+                    <!-- 2. BLOC VANNES RADIATEURS eQ-3 -->
+                    <?php foreach ($room_valves as $rf => $v_conf):
+                        $live_dev = $live_devices[$rf] ?? null;
                         $no_log_info = ($live_dev === null);
 
-                        $isWin     = $live_dev ? $live_dev['win'] : false; 
-                        $isBoost   = $live_dev ? $live_dev['boost'] : false; 
-                        $isErr     = $live_dev ? $live_dev['err'] : false;
-                        $isBattLow = $live_dev ? $live_dev['batt'] : false;
-                        $mode      = $live_dev ? $live_dev['mode'] : 'AUTO';
-                        $soll      = $live_dev ? $live_dev['soll'] : 20.0;
-                        $ist       = $live_dev ? $live_dev['ist'] : '--';
+                        $isWin     = $live_dev ? ($live_dev['win'] ?? false) : false; 
+                        $isBoost   = $live_dev ? ($live_dev['boost'] ?? false) : false; 
+                        $isErr     = $live_dev ? ($live_dev['err'] ?? false) : false;
+                        $isBattLow = $live_dev ? ($live_dev['batt'] ?? false) : false;
+                        $mode      = $live_dev ? ($live_dev['mode'] ?? 'AUTO') : 'AUTO';
+                        $soll      = $live_dev ? floatval($live_dev['soll'] ?? 20.0) : 20.0;
+                        $ist       = $live_dev ? ($live_dev['ist'] ?? '--') : '--';
+                        $valve_pos = $live_dev ? ($live_dev['valve_pos'] ?? '--') : '--';
 
                         $status_color = 'var(--green)';
                         if ($isErr || $no_log_info) $status_color = 'var(--red)';
@@ -149,10 +178,14 @@ $sha_devices = $sha_live['devices'] ?? [];
                     ?>
                         <div class="heating-valve-block" <?= $no_log_info ? 'style="border-color: rgba(255, 23, 68, 0.25);"' : '' ?>>
                             
-                            <div class="valve-status-line" style="display: flex; justify-content: flex-end; align-items: center; width: 100%;">
+                            <div class="valve-status-line" style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                                <div style="font-weight: 800; font-size: 0.75rem; color: #eee; display: flex; align-items: center; gap: 6px;">
+                                    <span><?= htmlspecialchars($v_conf['icon']) ?></span>
+                                    <span><?= htmlspecialchars($v_conf['label']) ?></span>
+                                </div>
                                 <div style="display: flex; align-items: center; gap: 6px;">
                                     <span class="valve-status-indicator" style="color: <?= $status_color ?>; margin-right: 2px;">
-                                        • <?= $no_log_info ? 'NO LOG DATA' : ($isErr ? 'ERR' : ($isWin ? 'OFFEN' : ($isBoost ? 'BOOST' : $mode))); ?>
+                                        • <?= $no_log_info ? 'EN ATTENTE' : ($isErr ? 'ERR' : ($isWin ? 'FENÊTRE' : ($isBoost ? 'BOOST' : $mode))); ?>
                                     </span>
                                     <?php if($isWin) echo '<span style="color:var(--accent);">🪟</span>'; if($isErr || $no_log_info) echo '<span style="color:var(--red);">⚠️</span>'; if($isBattLow) echo '<span style="color:var(--solar);">🪫</span>'; ?>
                                 </div>
@@ -160,17 +193,21 @@ $sha_devices = $sha_live['devices'] ?? [];
 
                             <?php if ($no_log_info): ?>
                                 <div style="font-size: 0.65rem; color: var(--red); background: rgba(255, 23, 68, 0.05); padding: 5px 10px; border-radius: var(--radius-sm); text-align: center; border: 1px dashed rgba(255, 23, 68, 0.2); font-weight: 700; letter-spacing: 0.2px;">
-                                    ⚠️ Statut introuvable (Attente synchronisation)
+                                    ⚠️ Vanne non synchronisée (Attente trame CUL)
                                 </div>
                             <?php endif; ?>
 
                             <div class="display-box-temp" <?= $no_log_info ? 'style="opacity: 0.6;"' : '' ?>>
                                 <div class="temp-segment">
-                                    <div class="label-min-temp">IST</div>
-                                    <div class="val-ist"><?= $ist; ?>°</div>
+                                    <div class="label-min-temp">IST (MESURE)</div>
+                                    <div class="val-ist"><?= $ist; ?><?= is_numeric($ist) ? '°' : '' ?></div>
                                 </div>
                                 <div class="temp-segment">
-                                    <div class="label-min-temp">SOLL</div>
+                                    <div class="label-min-temp">OUVERTURE</div>
+                                    <div class="val-ist" style="font-size: 1.4rem; color: #bcaaa4;"><?= $valve_pos ?></div>
+                                </div>
+                                <div class="temp-segment">
+                                    <div class="label-min-temp">CONSIGNE</div>
                                     <div class="val-soll"><?= number_format($soll, 1); ?>°</div>
                                 </div>
                             </div>
@@ -184,21 +221,21 @@ $sha_devices = $sha_live['devices'] ?? [];
                                     endfor; ?>
                                 </select>
                                 
-                                <button type="button" onclick="setRoomTemperature('<?= $lookup_key; ?>', this.previousElementSibling.value, event)" class="btn-ok-temp" <?php if($isWin || $isBoost) echo 'disabled'; ?>>OK</button>
+                                <button type="button" onclick="setRoomTemperature('<?= $rf; ?>', this.previousElementSibling.value, event)" class="btn-ok-temp" <?php if($isWin || $isBoost) echo 'disabled'; ?>>OK</button>
                                 
                                 <?php if ($isWin): ?>
                                     <button type="button" class="btn-boost-action" style="opacity:0.15; cursor:not-allowed; padding: 6px 10px; font-size: 0.7rem; flex: 1;" disabled>BOOST</button>
                                 <?php elseif ($isBoost): ?>
                                     <button type="button" class="btn-boost-action active" style="padding: 6px 10px; font-size: 0.7rem; flex: 1;" disabled>BOOSTING</button>
                                 <?php else: ?>
-                                    <button type="button" onclick="triggerRoomBoost('<?= $lookup_key; ?>', event)" class="btn-boost-action" style="padding: 6px 10px; font-size: 0.7rem; flex: 1;">BOOST</button>
+                                    <button type="button" onclick="triggerRoomBoost('<?= $rf; ?>', event)" class="btn-boost-action" style="padding: 6px 10px; font-size: 0.7rem; flex: 1;">BOOST</button>
                                 <?php endif; ?>
                             </div>
 
                         </div>
                     <?php endforeach; ?>
 
-                    <!-- 2. BLOC CLIMATISATION DAIKIN (KLIMA) -->
+                    <!-- 3. BLOC CLIMATISATION DAIKIN (KLIMA) -->
                     <?php foreach ($room_klimas as $klima):
                         $k_ip = $klima['ip'];
                         $k_dev = $sha_devices[$k_ip] ?? null;
@@ -274,6 +311,7 @@ $sha_devices = $sha_live['devices'] ?? [];
                             </div>
                         </div>
                     <?php endforeach; ?>
+
                 </div>
             </div>
         <?php endforeach; ?>

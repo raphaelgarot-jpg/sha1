@@ -3,7 +3,7 @@
 """
 S.H.A. 2026 - Console Dédiée MAX! Cube 2 (Moteur CUL / a-culfw)
 Contrôle exclusif de [Cube2] flashé sous a-culw (868 MHz).
-Appairage radio, sniffer temps réel, pilotage expert vannes, poll contact et boost antenne TX.
+Appairage radio, suppression/désappairage, sniffer temps réel, pilotage expert vannes, poll contact et boost antenne TX.
 Lecture stricte de app.conf sans altérer config/home_structure.conf.
 """
 
@@ -210,6 +210,14 @@ def parse_cul_max_packet(raw_line):
                 "info": "Réponse appairage Cube"
             })
 
+        # 6. RESET / REMOVE NOTIFICATION (0xF0 / 0x08)
+        elif msg_type in ["f0", "F0", "08"]:
+            result.update({
+                "desc": "DEVICE_RESET_OR_REMOVE",
+                "icon": "🗑️",
+                "info": "Trame de réinitialisation / suppression"
+            })
+
         return result
 
     except Exception:
@@ -235,7 +243,7 @@ def open_cul_connection(ip, port):
     return sock
 
 def send_and_wait_ack(ip, port, telegram_str, target_rf, timeout_sec=6.0):
-    """Transmet un télégramme radio et attend l'acquittement ou le retour de la vanne."""
+    """Transmet un télégramme radio et attend l'acquittement ou le retour de l'appareil."""
     sock = open_cul_connection(ip, port)
     if not sock:
         return False
@@ -268,7 +276,7 @@ def send_and_wait_ack(ip, port, telegram_str, target_rf, timeout_sec=6.0):
 
                     packet = parse_cul_max_packet(line)
                     if packet and packet.get("src_rf") == target_rf:
-                        print(f"\n\n✅ RÉPONSE REÇUE DE LA VANNE [{target_rf}] :")
+                        print(f"\n\n✅ RÉPONSE REÇUE DE L'APPAREIL [{target_rf}] :")
                         print(f"   • Trame        : {packet['desc']} (Type: 0x{packet['msg_type']})")
                         print(f"   • Détails      : {packet.get('info', 'N/A')}")
                         print(f"   • Donnée brute : {packet['raw']}\n")
@@ -278,7 +286,7 @@ def send_and_wait_ack(ip, port, telegram_str, target_rf, timeout_sec=6.0):
                 break
         
         if not got_response:
-            print(f"\n\nℹ️ Télégramme envoyé. Pas de réponse immédiate (la vanne appliquera l'ordre à son prochain cycle WOR).")
+            print(f"\n\nℹ️ Télégramme envoyé. Pas de réponse immédiate (le périphérique appliquera l'ordre à son prochain réveil RF/WOR).")
     except KeyboardInterrupt:
         print("\n⏹️ Interrompu.")
     finally:
@@ -472,8 +480,86 @@ def menu_valve_expert(ip, port):
             print("⚠️ Option non reconnue.")
 
 # ==============================================================================
-# 5. FONCTIONS RADIO & GESTION PUISSANCE ÉMISSION (PATABLE / BOOST)
+# 5. FONCTIONS RADIO (APPAIRAGE, SUPPRESSION, SNIFFER, BOOST TX, POLL)
 # ==============================================================================
+
+def delete_unpair_device(ip, port):
+    """
+    Supprime et désappaire un équipement eQ-3 (Vanne ou Contact) :
+    1. Transmet l'ordre radio de Reset/Unpair (Type 0xF0 ou 0x08) vers l'appareil.
+    2. Purge l'entrée correspondante dans la mémoire CUL (commande Zd / Zc).
+    """
+    print("\n" + "═"*75)
+    print(" 🗑️ SUPPRESSION ET DÉSAPPAIRAGE D'UN APPAREIL RADIO (CUBE 2)")
+    print("═"*75)
+    
+    rf = validate_rf(input("👉 Adresse RF de l'appareil à supprimer (6 hex, ex: 084e4b ou 11d16d) : "))
+    if not rf:
+        print("❌ Adresse RF invalide.")
+        return
+
+    print(f"\n⚠️ Action : Suppression de l'appareil [\033[1;31m{rf}\033[0m]")
+    print(" 1. ⚡ Désappairage + Reset Usine Radio (Ordre 0xF0 - Recommandé)")
+    print(" 2. 🔲 Ordre d'effacement standard MAX! (Ordre 0x08 Remove)")
+    print(" 3. 🧹 Purger uniquement de la table d'appairage CUL (Commande Zd)")
+    print(" 0. ↩️ Annuler")
+    print("───────────────────────────────────────────────────────────────────────────")
+
+    ch = input("👉 Choisis une option (0-3) : ").strip()
+    if ch in ['0', 'q', 'exit', '']:
+        print("⏹️ Suppression annulée.")
+        return
+
+    sock = open_cul_connection(ip, port)
+    if not sock:
+        return
+
+    try:
+        if ch == '1':
+            # Télégramme MAX! Reset (Type 0xF0)
+            telegram = f"Zs0a0100f0000000{rf}00\r\n"
+            print(f"📡 Émission de l'ordre de Reset Usine Radio (0xF0) vers [{rf}]...")
+            send_and_wait_ack(ip, port, telegram, rf, timeout_sec=6.0)
+
+            # Purge CUL conjointe
+            sock_purge = open_cul_connection(ip, port)
+            if sock_purge:
+                sock_purge.sendall(f"Zd{rf}\r\n".encode('ascii'))
+                time.sleep(0.2)
+                sock_purge.close()
+
+        elif ch == '2':
+            # Télégramme MAX! RemoveDevice (Type 0x08)
+            telegram = f"Zs0a010008000000{rf}00\r\n"
+            print(f"📡 Émission de l'ordre de désappairage standard (0x08) vers [{rf}]...")
+            send_and_wait_ack(ip, port, telegram, rf, timeout_sec=6.0)
+
+            sock_purge = open_cul_connection(ip, port)
+            if sock_purge:
+                sock_purge.sendall(f"Zd{rf}\r\n".encode('ascii'))
+                time.sleep(0.2)
+                sock_purge.close()
+
+        elif ch == '3':
+            print(f"🧹 Purge de la clé [{rf}] dans la mémoire CUL...")
+            sock.sendall(f"Zd{rf}\r\n".encode('ascii'))
+            time.sleep(0.5)
+            print("✅ Entrée purgée du firmware CUL.")
+
+        print("\n" + "─"*75)
+        print(f"✅ Procédure de suppression terminée pour [\033[1;32m{rf}\033[0m].")
+        print("💡 N'oublie pas de supprimer la ligne correspondante dans :")
+        print(f"   📂 config/home_structure.conf (ex: devices[] = \"...|{rf}|...\")")
+        print("─"*75)
+
+    except Exception as e:
+        print(f"❌ Erreur lors de la suppression : {e}")
+    finally:
+        try:
+            sock.sendall(b"q:\r\n")
+            sock.close()
+        except:
+            pass
 
 def set_antenna_boost(ip, port):
     """
@@ -488,7 +574,6 @@ def set_antenna_boost(ip, port):
     if not sock:
         return
 
-    # 1. Lecture de la valeur actuelle via la commande 'x'
     current_val = "N/A"
     try:
         sock.sendall(b"x\r\n")
@@ -561,7 +646,6 @@ def set_antenna_boost(ip, port):
             sock.sendall(f"{target_cmd}\r\n".encode('ascii'))
             time.sleep(0.3)
 
-            # Relecture pour confirmation
             sock.sendall(b"x\r\n")
             time.sleep(0.3)
             r, _, _ = select.select([sock], [], [], 1.0)
@@ -651,7 +735,6 @@ def run_pairing_sniffer(ip, port, duration=90):
                                 print("   ------------------------------------------------------------")
                                 print("   💡 Configuration de référence pour home_structure.conf :")
                                 if packet.get("dev_type_id") in [1, 2]:
-                                    print(f'   heizung_id = "PIECE|{rf}"')
                                     print(f'   devices[] = "heizung|{rf}|1|TM NomPièce|🔥"')
                                 elif packet.get("dev_type_id") == 4:
                                     print(f'   devices[] = "fensterkontakt|{rf}|1|Fenster NomPièce|🪟"')
@@ -738,25 +821,28 @@ def main_menu():
         print(f" 🔒 Fichier    : {get_app_conf_path()}")
         print(" ────────────────────────────────────────────────────────────")
         print(" 1. 📡 Lancer l'Appairage Radio (Capture vannes / contacts)")
-        print(" 2. 🛰️ Moniteur de Trafic Radio Temps Réel (Sniffer MAX!)")
-        print(" 3. 🔥 Menu Expert Vannes (Consigne, Auto, Boost, Off/On, Poll)")
-        print(" 4. 🪟 Interroger l'état d'un Contact de fenêtre (Poll RF)")
-        print(" 5. 📶 Réglage Puissance / Boost Antenne RF (a-culfw TX Power)")
+        print(" 2. 🗑️ Supprimer / Désappairer un appareil (Reset radio & CUL)")
+        print(" 3. 🛰️ Moniteur de Trafic Radio Temps Réel (Sniffer MAX!)")
+        print(" 4. 🔥 Menu Expert Vannes (Consigne, Auto, Boost, Off/On, Poll)")
+        print(" 5. 🪟 Interroger l'état d'un Contact de fenêtre (Poll RF)")
+        print(" 6. 📶 Réglage Puissance / Boost Antenne RF (a-culfw TX Power)")
         print(" 0. 🚪 Quitter")
         print(" ────────────────────────────────────────────────────────────")
 
-        choice = input("👉 Choisis une option (0-5) : ").strip()
+        choice = input("👉 Choisis une option (0-6) : ").strip()
 
         if choice == '1':
             dur = input("👉 Durée d'écoute en secondes [90] : ").strip() or "90"
             run_pairing_sniffer(ip, port, int(dur))
         elif choice == '2':
-            run_live_traffic_monitor(ip, port)
+            delete_unpair_device(ip, port)
         elif choice == '3':
-            menu_valve_expert(ip, port)
+            run_live_traffic_monitor(ip, port)
         elif choice == '4':
-            poll_window_contact(ip, port)
+            menu_valve_expert(ip, port)
         elif choice == '5':
+            poll_window_contact(ip, port)
+        elif choice == '6':
             set_antenna_boost(ip, port)
         elif choice in ['0', 'q', 'exit']:
             print("👋 Fermeture de la console Cube2.")

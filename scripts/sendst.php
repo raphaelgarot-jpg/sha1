@@ -24,7 +24,11 @@ if ($ipexpl[0] == 172 && $ipexpl[1] == 18) {
         shell_exec("sleep 1 && ./senditgw433.py D 3 " . $safe_state . " > /dev/null 2>&1 &");
         shell_exec("sleep 2 && ./senditgw433.py D 4 " . $safe_state . " > /dev/null 2>&1 &");
         shell_exec("sleep 2 && ./senditgw433.py D 5 " . $safe_state . " > /dev/null 2>&1 &");
-        shell_exec("sleep 2 && ./senditgw433.py D 1 " . $safe_state . " > /dev/null 2>&1 &");
+
+        // Exclusion du canal D 1 lors d'une commande globale "off"
+        if ($state !== 'off') {
+            shell_exec("sleep 2 && ./senditgw433.py D 1 " . $safe_state . " > /dev/null 2>&1 &");
+        }
     } else {
         exec(__DIR__ . "/senditgw433.py " . escapeshellarg($master) . " " . escapeshellarg($slave) . " " . $safe_state);
     }

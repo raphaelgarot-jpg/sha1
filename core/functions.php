@@ -375,7 +375,7 @@ function get_sha_live_cache($cache_path = '/var/www/html/sha/data/sha_live.json'
 /**
  * Intercepte les clics AJAX et dépose un fichier d'ordre pour le Worker Docker
  */
-function handle_heating_action() {
+/* function handle_heating_action() {
     $cmd_file = '/var/www/html/sha/data/heiz_cmd.json';
 
     // Interception des requêtes asynchrones AJAX
@@ -408,12 +408,93 @@ function handle_heating_action() {
         header("Location: heiz.php?update=1");
         exit;
     }
+} */
+
+/* =====================================================================
+   ♨️ SOUS-SYSTÈME THERMIQUE A.S.H.E.S. (CUBE 2 a-culfw & CUL QUEUE)
+   ===================================================================== */
+
+/**
+ * Intercepte les clics AJAX et dépose un ticket d'ordre pour le Worker Python CUL
+ */
+function handle_heating_action() {
+    $cmd_file = dirname(__DIR__) . '/data/heiz_cmd.json';
+
+    // Interception des requêtes asynchrones AJAX
+    if (isset($_GET['ajax_cmd'])) {
+        $cmd = [
+            'fct'       => trim($_GET['fct']),
+            'id'        => trim($_GET['id']),
+            'temp'      => isset($_GET['temp']) ? trim($_GET['temp']) : 'BOOST',
+            'timestamp' => time()
+        ];
+        @file_put_contents($cmd_file, json_encode($cmd, JSON_PRETTY_PRINT));
+        
+        // Nettoyage complet des tampons de sortie pour ne renvoyer que le JSON
+        while (ob_get_level() > 0) {
+            ob_end_clean();
+        }
+        
+        header('Content-Type: application/json');
+        echo json_encode(['success' => true, 'message' => 'Ordre transmis à la file CUL']);
+        exit;
+    }
+
+    // Ordre de Hard Scan global (déclenche le polling radio de masse)
+    if (isset($_GET['scan'])) {
+        $cmd = [
+            'fct'       => 'scan',
+            'timestamp' => time()
+        ];
+        @file_put_contents($cmd_file, json_encode($cmd, JSON_PRETTY_PRINT));
+        header("Location: heiz.php?update=1");
+        exit;
+    }
 }
 
 /**
- * Lit le cache JSON unifié généré en tâche de fond par le conteneur Node
+ * Lit le cache JSON unifié généré en temps réel par le démon CUL (Cube 2 a-culfw)
  */
-function get_maxcube_live_data($json_path = '/var/www/html/sha/data/heiz_out.json') {
+function get_maxcube_cul_live_data($json_path = null) {
+    if ($json_path === null) {
+        $json_path = dirname(__DIR__) . '/data/heiz_cul_out.json';
+    }
+
+    $fallback = [
+        'system'  => [
+            'duty_val'   => 0,
+            'slots_val'  => 64,
+            'duty_color' => 'var(--green)',
+            'next_fmt'   => 'MAJ...',
+            'firmware'   => 'a-culfw 868MHz'
+        ],
+        'devices' => []
+    ];
+
+    if (!file_exists($json_path) || filesize($json_path) === 0) {
+        return $fallback;
+    }
+
+    $data = json_decode(@file_get_contents($json_path), true);
+    if (!is_array($data)) {
+        return $fallback;
+    }
+
+    // Calcul du rafraîchissement restant basé sur l'âge réel du fichier JSON (cycle de 5 min)
+    $file_time = filemtime($json_path);
+    $next_up = ($file_time + 300) - time();
+    $data['system']['next_fmt'] = ($next_up > 0) ? sprintf("%02dm %02ds", floor($next_up / 60), $next_up % 60) : "MAJ...";
+
+    return $data;
+}
+
+/**
+ * Alias de compatibilité ascendante pour get_maxcube_live_data()
+ */
+function get_maxcube_live_data($json_path = null) {
+    return get_maxcube_cul_live_data($json_path);
+}
+/* function get_maxcube_live_data($json_path = '/var/www/html/sha/data/heiz_out.json') {
     $fallback = [
         'system'  => ['duty_val' => 0, 'slots_val' => 50, 'duty_color' => 'var(--green)', 'next_fmt' => 'MAJ...'],
         'devices' => []
@@ -432,7 +513,7 @@ function get_maxcube_live_data($json_path = '/var/www/html/sha/data/heiz_out.jso
 
     return $data;
 }
-
+ */
 // core/functions.php : Logique de mise à jour basée sur un fichier (ex: JSON)
 function update_task_modification_date($task_id, $custom_date, $storage_file = 'data/tasks.json') {
     if (!file_exists($storage_file)) {
