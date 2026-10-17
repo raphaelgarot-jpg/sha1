@@ -29,13 +29,35 @@ foreach ($rooms as $name => $data) {
 }
 
 // 2. Télémétrie CUL (Cube 2 a-culfw) depuis data/heiz_cul_out.json
-$cul_live = get_maxcube_cul_live_data();
-$system_status = $cul_live['system'];
-$live_devices = $cul_live['devices'];
+$cul_live = get_maxcube_live_data(__DIR__ . '/data/heiz_cul_out.json');
+$system_status = $cul_live['system'] ?? ['duty_color' => 'var(--green)', 'duty_val' => 100, 'firmware' => 'N/A', 'next_fmt' => 'N/A', 'slots_val' => 0];
+$live_devices = $cul_live['devices'] ?? [];
 
-// 3. Télémétrie Live RAM (Daikin / Tasmota / MQTT)
-$sha_live = get_sha_live_cache();
-$sha_devices = $sha_live['devices'] ?? [];
+// 3. Télémétrie DAIKIN depuis data/daikin.json
+$daikin_file = __DIR__ . '/data/daikin.json';
+$daikin_live = file_exists($daikin_file) ? json_decode(@file_get_contents($daikin_file), true) : [];
+
+// 4. Télémétrie NETATMO depuis data/weather.json avec table de correspondance explicite
+$weather_file = __DIR__ . '/data/weather.json';
+$weather_raw = file_exists($weather_file) ? json_decode(@file_get_contents($weather_file), true) : [];
+$netatmo_temps = [];
+
+if (is_array($weather_raw)) {
+    foreach ($weather_raw as $sensor) {
+        $raw_name = trim($sensor['name'] ?? '');
+        if ($raw_name === '') continue;
+
+        // Table de correspondance explicite
+        $mapped_name = $raw_name;
+        if ($raw_name === "Station (Innen)") $mapped_name = "Esszimmer";
+        if ($raw_name === "Keller") $mapped_name = "Arbeitszimmer";
+        if ($raw_name === "WG") $mapped_name = "Wintergarten";
+
+        if (isset($sensor['temp'])) {
+            $netatmo_temps[strtolower($mapped_name)] = round(floatval($sensor['temp']), 1);
+        }
+    }
+}
 ?>
 
 <main class="container">
@@ -62,6 +84,10 @@ $sha_devices = $sha_live['devices'] ?? [];
             $room_valves = [];
             $room_windows = [];
             $room_klimas = [];
+
+            // Résolution de la température mesurée (IST) via Netatmo pour cette pièce
+            $room_key = strtolower(trim($name));
+            $room_netatmo_temp = isset($netatmo_temps[$room_key]) ? number_format($netatmo_temps[$room_key], 1) : '--';
 
             // Compatibilité ancienne clé heizung_id = "NOM|rf" ou "rf"
             if (isset($data['heizung_id']) && trim($data['heizung_id']) !== 'None' && trim($data['heizung_id']) !== '') {
@@ -111,7 +137,7 @@ $sha_devices = $sha_live['devices'] ?? [];
                         ];
                     } elseif ($type === 'klima' && count($parts) >= 2) {
                         $room_klimas[] = [
-                            'ip'    => trim($parts[1]),
+                            'uuid'  => trim($parts[1]),
                             'relay' => trim($parts[2] ?? '1'),
                             'label' => trim($parts[3] ?? 'Klimaanlage'),
                             'icon'  => trim($parts[4] ?? '❄️')
@@ -168,7 +194,9 @@ $sha_devices = $sha_live['devices'] ?? [];
                         $isBattLow = $live_dev ? ($live_dev['batt'] ?? false) : false;
                         $mode      = $live_dev ? ($live_dev['mode'] ?? 'AUTO') : 'AUTO';
                         $soll      = $live_dev ? floatval($live_dev['soll'] ?? 20.0) : 20.0;
-                        $ist       = $live_dev ? ($live_dev['ist'] ?? '--') : '--';
+                        
+                        // Utilisation directe de la température Netatmo mappée
+                        $ist       = $room_netatmo_temp;
                         $valve_pos = $live_dev ? ($live_dev['valve_pos'] ?? '--') : '--';
 
                         $status_color = 'var(--green)';
@@ -237,17 +265,16 @@ $sha_devices = $sha_live['devices'] ?? [];
 
                     <!-- 3. BLOC CLIMATISATION DAIKIN (KLIMA) -->
                     <?php foreach ($room_klimas as $klima):
-                        $k_ip = $klima['ip'];
-                        $k_dev = $sha_devices[$k_ip] ?? null;
+                        $k_uuid = $klima['uuid'];
+                        $k_dev = $daikin_live[$k_uuid] ?? null;
 
                         $is_online = ($k_dev !== null && abs(time() - ($k_dev['last_seen'] ?? 0)) < 600);
                         $k_state = strtoupper($k_dev['state'] ?? 'OFF');
                         $is_on = ($k_state === 'ON');
 
-                        $k_ist = isset($k_dev['room_temp']) ? $k_dev['room_temp'] : (isset($k_dev['temperature']) && $k_dev['temperature'] != 154 ? $k_dev['temperature'] : '--');
-                        $k_soll = isset($k_dev['soll']) ? floatval($k_dev['soll']) : (isset($k_dev['target_temp']) ? floatval($k_dev['target_temp']) : 21.0);
+                        $k_ist = $k_dev['room_temp'] ?? '--';
+                        $k_soll = floatval($k_dev['soll'] ?? 21.0);
                         $k_mode = strtoupper($k_dev['mode'] ?? ($is_on ? 'COOL' : 'OFF'));
-                        $k_power = isset($k_dev['power']) ? round($k_dev['power']) : null;
 
                         $k_status_color = $is_on ? 'var(--green)' : '#8e7d7b';
                         if (!$is_online) $k_status_color = 'var(--red)';
@@ -259,11 +286,8 @@ $sha_devices = $sha_live['devices'] ?? [];
                                     <span><?= strtoupper(htmlspecialchars($klima['label'])) ?></span>
                                 </div>
                                 <div style="display: flex; align-items: center; gap: 6px;">
-                                    <?php if ($k_power !== null && $k_power > 0): ?>
-                                        <span class="badge badge-blue" style="font-size: 0.6rem; padding: 2px 6px;">⚡ <?= $k_power ?>W</span>
-                                    <?php endif; ?>
                                     <span class="valve-status-indicator" style="color: <?= $k_status_color ?>;">
-                                        • <?= !$is_online ? 'OFFLINE' : ($is_on ? $k_mode : 'OFF'); ?>
+                                        • <?= (!$is_online) ? 'OFFLINE' : ($is_on ? $k_mode : 'OFF'); ?>
                                     </span>
                                     <?php if (!$is_online): ?><span style="color:var(--red);">⚠️</span><?php endif; ?>
                                 </div>
@@ -295,12 +319,12 @@ $sha_devices = $sha_live['devices'] ?? [];
                                     endfor; ?>
                                 </select>
                                 
-                                <button type="button" onclick="setRoomTemperature('klima_<?= $k_ip; ?>', this.previousElementSibling.value, event)" class="btn-ok-temp" <?php if(!$is_online) echo 'disabled'; ?>>OK</button>
+                                <button type="button" onclick="setRoomTemperature('klima_<?= $k_uuid; ?>', this.previousElementSibling.value, event)" class="btn-ok-temp" <?php if(!$is_online) echo 'disabled'; ?>>OK</button>
 
                                 <button type="button" 
                                         class="toggle-btn <?= $is_on ? 'btn-on' : 'btn-off' ?>" 
                                         data-type="klima" 
-                                        data-ip="<?= $k_ip ?>" 
+                                        data-ip="<?= $k_uuid ?>" 
                                         data-relay="<?= $klima['relay'] ?>" 
                                         data-state="<?= $k_state ?>" 
                                         data-label="<?= htmlspecialchars($klima['label'], ENT_QUOTES) ?>"

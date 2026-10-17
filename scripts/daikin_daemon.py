@@ -1,0 +1,582 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+S.H.A. 2026 - Démon Passif & Pairing CUL / MAX! Cube (Passerelle a-culfw 868 MHz)
+Fichier : /opt/zabbix-docker/apps/sha/scripts/maxcube_cul_daemon.py
+- Détection et persistance de la version firmware eQ-3 (v1.1 vs v1.6+).
+- Routage adaptatif des trames :
+    * Firmware v1.1 : Envoi direct sans réveil (Flag 00, Source 000000, Seq incrémentale).
+    * Firmware v1.6+ : Envoi avec préambule Wake-On-Radio (Flag 04, Source 000000, Seq incrémentale).
+- Moteur d'appairage actif et synchronisation d'horloge.
+- Automatisation abaissement 5.0°C sur fenêtre ouverte et restauration.
+- Écriture atomique dans data/heiz_cul_out.json.
+"""
+
+import sys
+import os
+import time
+from datetime import datetime
+import socket
+import json
+import configparser
+import select
+import re
+
+# --- CHEMINS DYNAMIQUES DU PROJET ---
+BASE_DIR       = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+APP_CONF_FILE  = os.path.join(BASE_DIR, "config", "app.conf")
+HOME_CONF_FILE = os.path.join(BASE_DIR, "config", "home_structure.conf")
+OUT_FILE       = os.path.join(BASE_DIR, "data", "heiz_cul_out.json")
+CMD_FILE       = os.path.join(BASE_DIR, "data", "heiz_cmd.json")
+
+DEVICE_CACHE = {}
+DEVICE_METADATA = {}
+PREVIOUS_TEMPERATURES = {}
+
+MSG_SEQ = 1
+
+SYSTEM_STATUS = {
+    "cul_status": "DISCONNECTED",
+    "duty_val": 0,
+    "slots_val": 64,
+    "duty_color": "var(--green)",
+    "firmware": "a-culfw 868MHz",
+    "updated_at": int(time.time())
+}
+
+def log(msg):
+    """Affiche un message formaté avec horodatage standard."""
+    timestamp = datetime.now().strftime("[%Y-%m-%d %H:%M:%S]")
+    print(f"{timestamp} {msg}", flush=True)
+
+def get_next_seq():
+    """Génère un compteur de séquence incrémental sur 1 octet hexadécimal."""
+    global MSG_SEQ
+    seq_hex = f"{MSG_SEQ:02x}"
+    MSG_SEQ = (MSG_SEQ + 1) % 256
+    return seq_hex
+
+# ==============================================================================
+# 1. CONFIGURATION & CACHE
+# ==============================================================================
+
+def load_cube2_config():
+    default_ip = "192.168.0.229"
+    default_port = 2323
+    default_src_rf = "000000"
+
+    if not os.path.exists(APP_CONF_FILE):
+        return default_ip, default_port, default_src_rf
+
+    config = configparser.ConfigParser()
+    try:
+        config.read(APP_CONF_FILE, encoding='utf-8')
+    except Exception as e:
+        log(f"⚠️ [CONF] Erreur lecture {APP_CONF_FILE} : {e}")
+        return default_ip, default_port, default_src_rf
+
+    selected_sec = None
+    for sec in ["Cube2", "cube2", "CUBE2", "MaxCube", "MAXCUBE"]:
+        if config.has_section(sec):
+            selected_sec = sec
+            break
+
+    if not selected_sec:
+        return default_ip, default_port, default_src_rf
+
+    ip = config.get(selected_sec, 'ip', fallback=default_ip).strip('"\'; ')
+    src_rf = config.get(selected_sec, 'src_rf', fallback=default_src_rf).strip('"\'; ').lower()
+    if not re.match(r'^[0-9a-f]{6}$', src_rf):
+        src_rf = default_src_rf
+
+    try:
+        port = int(config.get(selected_sec, 'port', fallback=str(default_port)).strip('"\'; '))
+    except ValueError:
+        port = default_port
+
+    return ip, port, src_rf
+
+def load_device_metadata():
+    global DEVICE_METADATA
+    DEVICE_METADATA = {}
+    if not os.path.exists(HOME_CONF_FILE): return
+
+    try:
+        with open(HOME_CONF_FILE, 'r', encoding='utf-8') as f:
+            current_room = "UNKNOWN"
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith((';', '#')): continue
+
+                m_sec = re.match(r'^\[(.*?)\]', line)
+                if m_sec:
+                    current_room = m_sec.group(1).upper()
+                    continue
+
+                if current_room in ['SYSTEM', 'DEFAULTS']: continue
+
+                if line.lower().startswith('heizung_id'):
+                    if '=' in line:
+                        val = line.split('=', 1)[1].strip(' "\';')
+                        if val and val.lower() != 'none':
+                            parts = val.split('|')
+                            rf = (parts[1] if len(parts) > 1 else parts[0]).strip().lower()
+                            if re.match(r'^[0-9a-f]{6}$', rf):
+                                DEVICE_METADATA[rf] = {"room": current_room, "label": f"Thermostat {current_room}", "type": "heizung"}
+
+                elif line.lower().startswith('devices'):
+                    if '=' in line:
+                        val = line.split('=', 1)[1].strip(' "\';')
+                        parts = val.split('|')
+                        if len(parts) >= 2:
+                            dtype = parts[0].strip().lower()
+                            rf = parts[1].strip().lower()
+                            label = parts[2].strip() if len(parts) > 2 else f"{dtype} {current_room}"
+                            if len(parts) >= 5: label = parts[3].strip()
+                            
+                            if dtype in ['heizung', 'fensterkontakt'] and re.match(r'^[0-9a-f]{6}$', rf):
+                                DEVICE_METADATA[rf] = {"room": current_room, "label": label, "type": dtype}
+                                
+        log(f"📋 [MAP] {len(DEVICE_METADATA)} appareil(s) déclaré(s).")
+    except Exception as e:
+        log(f"⚠️ [CONF] Erreur lecture : {e}")
+
+def load_persisted_cache():
+    global DEVICE_CACHE, SYSTEM_STATUS
+    if os.path.exists(OUT_FILE) and os.path.getsize(OUT_FILE) > 0:
+        try:
+            with open(OUT_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                if isinstance(data, dict) and isinstance(data.get("devices"), dict):
+                    for rf, dev in data["devices"].items():
+                        rf_clean = rf.lower().strip()
+                        if rf_clean in DEVICE_METADATA:
+                            DEVICE_CACHE[rf_clean] = dev
+                    log(f"📦 [CACHE] Reprise de {len(DEVICE_CACHE)} état(s) en RAM.")
+                
+                if isinstance(data, dict) and "system" in data and "firmware" in data["system"]:
+                    SYSTEM_STATUS["firmware"] = data["system"]["firmware"]
+        except Exception as e:
+            log(f"⚠️ [CACHE] Erreur restauration : {e}")
+
+    for rf, meta in DEVICE_METADATA.items():
+        if rf not in DEVICE_CACHE:
+            base_dev = {
+                "id": rf, "src_rf": rf, "type": meta["type"], "category": meta["type"],
+                "room": meta["room"], "label": meta["label"], "last_seen": 0, "rssi": "--",
+                "firmware": "v1.6"  # Version par défaut si non encore détectée
+            }
+            if meta["type"] == "heizung":
+                base_dev.update({"mode": "AUTO", "soll": 20.0, "ist": "--", "valve_pos": "0%", "batt": False, "err": False, "boost": False, "win": False})
+            elif meta["type"] == "fensterkontakt":
+                base_dev.update({"state": "CLOSED", "is_open": False, "batt": False, "win": False})
+            
+            DEVICE_CACHE[rf] = base_dev
+            log(f"➕ [INIT] Création par défaut pour [{rf}] ({meta['label']})")
+
+def build_setpoint_packet(target_rf, t_val, mode_bits=1):
+    """
+    Construit la trame Zs adaptée selon la version du firmware :
+    - v1.1 : Flag '00' (envoi direct sans préambule long)
+    - v1.6+ : Flag '04' (Wake-On-Radio nécessaire au réveil)
+    """
+    t_val = float(t_val)
+    temp_byte = ((mode_bits & 0x03) << 6) | (int(round(t_val * 2)) & 0x3F)
+    payload = f"{temp_byte:02x}"
+    seq = get_next_seq()
+
+    dev = DEVICE_CACHE.get(target_rf, {})
+    fw_ver = str(dev.get("firmware", "v1.6")).lower()
+
+    flag = "00" if ("1.0" in fw_ver or "1.1" in fw_ver) else "04"
+    return f"Zs0b{seq}{flag}40000000{target_rf}00{payload}\r\n", fw_ver, flag
+
+def transmit_radio_packet(sock, telegram, target_id, log_desc):
+    try:
+        sock.sendall(telegram.encode('ascii'))
+        log(f"📤 [TX] {log_desc} -> [{target_id}] (Frame: {telegram.strip()})")
+    except Exception as e:
+        log(f"⚠️ [TX ERROR] {e}")
+
+def send_temperature_command_internal(sock, target_id, t_val):
+    try:
+        t_val = float(t_val)
+        telegram, fw, flag = build_setpoint_packet(target_id, t_val, mode_bits=1)
+        transmit_radio_packet(sock, telegram, target_id, f"Consigne {t_val}°C [FW: {fw}, Flag: {flag}]")
+
+        if target_id in DEVICE_CACHE:
+            DEVICE_CACHE[target_id]["soll"] = t_val
+            DEVICE_CACHE[target_id]["mode"] = "MANUAL"
+            DEVICE_CACHE[target_id]["boost"] = False
+    except Exception as e:
+        log(f"⚠️ [TX AUTO ERROR] {e}")
+
+def handle_pairing_handshake(sock, target_rf):
+    try:
+        seq1 = get_next_seq()
+        pair_pong = f"Zs0a{seq1}0001000000{target_rf}00\r\n"
+        sock.sendall(pair_pong.encode('ascii'))
+        log(f"🤝 [PAIR-ACK] PairPong transmis à [{target_rf}] : {pair_pong.strip()}")
+        time.sleep(0.15)
+
+        now = datetime.now()
+        year = f"{(now.year % 100):02x}"
+        day = f"{now.day:02x}"
+        month = f"{now.month:02x}"
+        hour = f"{now.hour:02x}"
+        minute = f"{now.minute:02x}"
+        second = f"{now.second:02x}"
+        time_payload = f"{year}{day}{month}{hour}{minute}{second}"
+
+        seq2 = get_next_seq()
+        set_time = f"Zs0f{seq2}0400000000{target_rf}00{time_payload}\r\n"
+        sock.sendall(set_time.encode('ascii'))
+        log(f"🕒 [PAIR-TIME] Horloge synchronisée pour [{target_rf}] : {set_time.strip()}")
+    except Exception as e:
+        log(f"⚠️ [PAIR ERROR] Échec du handshake pour [{target_rf}] : {e}")
+
+def update_room_windows_status(sock=None):
+    global PREVIOUS_TEMPERATURES
+    room_windows = {}
+    room_heaters = {}
+
+    for rf, dev in DEVICE_CACHE.items():
+        room = dev.get("room")
+        if not room: continue
+        
+        if dev.get("type") == "fensterkontakt":
+            if room not in room_windows:
+                room_windows[room] = False
+            if dev.get("is_open", False):
+                room_windows[room] = True
+        elif dev.get("type") == "heizung":
+            if room not in room_heaters:
+                room_heaters[room] = []
+            room_heaters[room].append((rf, dev))
+
+    for room, is_open in room_windows.items():
+        if room not in room_heaters: continue
+        
+        for rf, dev in room_heaters[room]:
+            current_win_state = dev.get("win", False)
+            
+            if is_open and not current_win_state:
+                dev["win"] = True
+                current_soll = dev.get("soll", 20.0)
+                if current_soll > 5.1:
+                    PREVIOUS_TEMPERATURES[room] = current_soll
+                    log(f"🪟 [AUTO-HEAT] Fenêtre ouverte dans [{room}]. Sauvegarde consigne {current_soll}°C et passage à 5.0°C.")
+                    if sock:
+                        send_temperature_command_internal(sock, rf, 5.0)
+                    else:
+                        dev["soll"] = 5.0
+                        dev["mode"] = "MANUAL"
+            
+            elif not is_open and current_win_state:
+                dev["win"] = False
+                restored_temp = PREVIOUS_TEMPERATURES.get(room, 20.0)
+                log(f"🔒 [AUTO-HEAT] Fenêtre fermée dans [{room}]. Restauration de la consigne précédente : {restored_temp}°C.")
+                if sock:
+                    send_temperature_command_internal(sock, rf, restored_temp)
+                else:
+                    dev["soll"] = restored_temp
+                    dev["mode"] = "MANUAL"
+
+def check_boost_expiration():
+    now = time.time()
+    for rf, dev in DEVICE_CACHE.items():
+        if dev.get("type") == "heizung" and dev.get("boost", False):
+            last_seen = dev.get("last_seen", 0)
+            if last_seen == 0 or (now - last_seen > 300):
+                dev["boost"] = False
+                dev["mode"] = "AUTO"
+                log(f"⏱️ [BOOST TIMEOUT] Réinitialisation du BOOST pour [{rf}] (last_seen: {last_seen}). Retour en mode AUTO.")
+                write_json_cache()
+
+def write_json_cache(sock=None):
+    check_boost_expiration()
+    update_room_windows_status(sock)
+    
+    duty = SYSTEM_STATUS.get("duty_val", 0)
+    SYSTEM_STATUS["duty_color"] = "var(--red)" if duty > 80 else ("var(--orange)" if duty > 50 else "var(--green)")
+    SYSTEM_STATUS["updated_at"] = int(time.time())
+    
+    output = {"system": SYSTEM_STATUS, "devices": DEVICE_CACHE}
+
+    os.makedirs(os.path.dirname(OUT_FILE), exist_ok=True)
+    tmp_file = OUT_FILE + ".tmp"
+    try:
+        with open(tmp_file, 'w', encoding='utf-8') as f:
+            json.dump(output, f, indent=4, ensure_ascii=False)
+        os.replace(tmp_file, OUT_FILE)
+    except Exception as e:
+        log(f"❌ [DISK] Erreur écriture JSON : {e}")
+
+# ==============================================================================
+# 2. DÉCODEUR RADIO MAX! CUL
+# ==============================================================================
+
+def parse_cul_max_packet(raw_line, sock=None):
+    line = raw_line.strip()
+    if not line.startswith("Z") or len(line) < 18: return None
+    if line.startswith(("Zs", "Zr", "Za", "Zx", "ZV", "Zq")): return None
+
+    data_hex = line[1:]
+    if not re.match(r'^[0-9a-fA-F]+$', data_hex): return None
+
+    try:
+        msg_type = data_hex[6:8].lower()
+        rf_from = data_hex[8:14].lower()
+        payload = data_hex[22:]
+
+        detected_fw = None
+
+        # 🤝 Interception du PairPing (00) : Décodage précis du Firmware
+        if msg_type == "00":
+            if len(payload) >= 4:
+                try:
+                    # Encodage version eQ-3 : 0x11 = 1.1 / 0x16 ou 0xA1 = 1.6
+                    fw_raw = payload[2:4].lower()
+                    if fw_raw in ["10", "11"]:
+                        detected_fw = "v1.1"
+                    elif fw_raw in ["15", "16", "a1"]:
+                        detected_fw = "v1.6"
+                    else:
+                        detected_fw = f"v{int(fw_raw, 16)/10.0:.1f}"
+                except Exception:
+                    detected_fw = "v1.6"
+            else:
+                detected_fw = "v1.1"
+
+            log(f"✨ [PAIR-REQ] Demande d'appairage reçue de [{rf_from}] (Firmware détecté : {detected_fw}) !")
+            if sock:
+                handle_pairing_handshake(sock, rf_from)
+
+        rssi_hex = line[-2:]
+        try:
+            rssi_val = - (256 - int(rssi_hex, 16)) if int(rssi_hex, 16) > 127 else int(rssi_hex, 16)
+            rssi_str = f"{rssi_val} dBm"
+        except Exception:
+            rssi_str = rssi_hex
+
+        if rf_from not in DEVICE_METADATA: return None
+
+        meta = DEVICE_METADATA.get(rf_from, {})
+        room_name = meta.get("room", "UNKNOWN")
+        label_name = meta.get("label", f"Device {rf_from}")
+
+        # Conserve ou met à jour la version firmware
+        cached_fw = DEVICE_CACHE.get(rf_from, {}).get("firmware", "v1.6")
+        final_fw = detected_fw if detected_fw else cached_fw
+
+        if msg_type == "30" and len(payload) >= 2:
+            st = int(payload[0:2], 16)
+            is_open = bool(st & 0x02)
+            return {
+                "id": rf_from, "src_rf": rf_from, "type": "fensterkontakt", "category": "fensterkontakt", 
+                "room": room_name, "label": label_name, "state": "OPEN" if is_open else "CLOSED", 
+                "is_open": is_open, "batt": bool(st & 0x80), "win": is_open, "rssi": rssi_str, "firmware": final_fw, "raw": line
+            }
+
+        elif msg_type in ["50", "60", "02"] and len(payload) >= 6:
+            mb = int(payload[0:2], 16)
+            modes = {0: "AUTO", 1: "MANUAL", 2: "VACATION", 3: "BOOST"}
+            
+            if msg_type == "02" and len(payload) >= 8:
+                setpoint = (int(payload[6:8], 16) & 0x3F) / 2.0
+            else:
+                setpoint = (int(payload[4:6], 16) & 0x3F) / 2.0
+
+            packet_data = {
+                "id": rf_from, "src_rf": rf_from, "type": "heizung", "category": "heizung", 
+                "room": room_name, "label": label_name, "mode": modes.get(mb & 0x03, "AUTO"), 
+                "soll": setpoint, "valve_pos": f"{int(payload[2:4], 16)}%", 
+                "batt": bool(mb & 0x80), "err": bool(mb & 0x30), "boost": (modes.get(mb & 0x03) == "BOOST"), 
+                "win": False, "rssi": rssi_str, "firmware": final_fw, "raw": line
+            }
+
+            if msg_type != "02":
+                if len(payload) >= 10: 
+                    raw_t = (((int(payload[6:8], 16) & 0x01) << 8) | int(payload[8:10], 16))
+                    packet_data["ist"] = f"{raw_t * 0.3:.1f}"
+                elif len(payload) >= 8: 
+                    raw_t = int(payload[6:8], 16)
+                    packet_data["ist"] = f"{raw_t * 0.3:.1f}"
+
+            return packet_data
+
+        elif msg_type in ["70", "40"] and len(payload) >= 2:
+            return {
+                "id": rf_from, "src_rf": rf_from, "type": "heizung", "category": "heizung", 
+                "room": room_name, "label": label_name, "mode": "AUTO", 
+                "soll": (int(payload[0:2], 16) & 0x3F) / 2.0, "win": False, "rssi": rssi_str, "firmware": final_fw, "raw": line
+            }
+        elif msg_type == "00":
+            return {
+                "id": rf_from, "src_rf": rf_from, "type": meta.get("type", "heizung"), "category": meta.get("type", "heizung"),
+                "room": room_name, "label": label_name, "firmware": final_fw, "rssi": rssi_str, "raw": line
+            }
+    except Exception:
+        pass
+    return None
+
+# ==============================================================================
+# 3. GESTION RÉSEAU & BOUCLE PRINCIPALE
+# ==============================================================================
+
+def open_cul_stream(ip, port):
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(4.0)
+    try:
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+    except Exception: pass
+
+    try:
+        sock.connect((ip, port))
+        log(f"✅ [NET] Connecté à Cube ({ip}:{port})")
+        
+        sock.sendall(b"V\r\nX21\r\nZr\r\nZa\r\n")
+        time.sleep(0.3)
+        
+        SYSTEM_STATUS["cul_status"] = "CONNECTED"
+        write_json_cache(sock)
+        log("👂 [CUL] Mode Écoute Passive & Pairing automatique activé.")
+        return sock
+    except Exception as e:
+        log(f"❌ [NET] Connexion impossible : {e}")
+        return None
+
+def run_daemon():
+    load_device_metadata()
+    load_persisted_cache()
+    write_json_cache()
+
+    ip, port, _ = load_cube2_config()
+    sock = None
+    buffer = ""
+
+    while True:
+        try:
+            if sock is None:
+                sock = open_cul_stream(ip, port)
+                if not sock: 
+                    time.sleep(4)
+                    continue
+                buffer = ""
+
+            check_boost_expiration()
+
+            if os.path.exists(CMD_FILE):
+                try:
+                    with open(CMD_FILE, 'r', encoding='utf-8') as f:
+                        cmd = json.load(f)
+                    try: os.remove(CMD_FILE)
+                    except Exception: pass
+
+                    fct = cmd.get('fct')
+                    target_id = cmd.get('id', '').lower()
+                    val = cmd.get('temp')
+
+                    if fct == 'temp' and re.match(r'^[0-9a-f]{6}$', target_id):
+                        t_val = float(val)
+                        telegram, fw, flag = build_setpoint_packet(target_id, t_val, mode_bits=1)
+                        transmit_radio_packet(sock, telegram, target_id, f"Consigne {t_val}°C [FW: {fw}, Flag: {flag}]")
+
+                        if target_id in DEVICE_CACHE:
+                            DEVICE_CACHE[target_id]["soll"] = t_val
+                            DEVICE_CACHE[target_id]["mode"] = "MANUAL"
+                            DEVICE_CACHE[target_id]["boost"] = False
+                            write_json_cache(sock)
+
+                    elif fct == 'mode' and val == 'BOOST' and re.match(r'^[0-9a-f]{6}$', target_id):
+                        telegram, fw, flag = build_setpoint_packet(target_id, 30.0, mode_bits=3)
+                        transmit_radio_packet(sock, telegram, target_id, f"Mode BOOST [FW: {fw}, Flag: {flag}]")
+
+                        if target_id in DEVICE_CACHE:
+                            DEVICE_CACHE[target_id]["boost"] = True
+                            DEVICE_CACHE[target_id]["mode"] = "BOOST"
+                            DEVICE_CACHE[target_id]["last_seen"] = int(time.time())
+                            write_json_cache(sock)
+
+                except Exception as e:
+                    log(f"⚠️ [CMD WEB] Erreur exécution ordre : {e}")
+
+            r, _, _ = select.select([sock], [], [], 1.0)
+            if r:
+                try: 
+                    chunk = sock.recv(4096).decode('latin1', errors='ignore')
+                except Exception: 
+                    sock = None
+                    time.sleep(2)
+                    continue
+                
+                if not chunk: 
+                    sock = None
+                    time.sleep(2)
+                    continue
+                
+                buffer += chunk
+
+                while "\r\n" in buffer:
+                    line, buffer = buffer.split("\r\n", 1)
+                    line = line.strip()
+                    if not line: continue
+
+                    if line.startswith("21  "):
+                        try:
+                            raw_hex = line[4:].strip()
+                            credits_val = int(raw_hex, 16)
+                            
+                            if credits_val > 450:
+                                pct = max(0, min(100, int(round(((900 - credits_val) / 900.0) * 100))))
+                            else:
+                                pct = max(0, min(100, int(round((credits_val / 900.0) * 100))))
+                            
+                            if SYSTEM_STATUS["duty_val"] != pct:
+                                SYSTEM_STATUS["duty_val"] = pct
+                                write_json_cache(sock)
+                        except Exception: pass
+                        continue
+
+                    if "LOVF" in line:
+                        SYSTEM_STATUS["duty_val"] = 100
+                        write_json_cache(sock)
+                        log("🚨 [DUTY CYCLE] Saturation radio (LOVF) détectée !")
+                        continue
+
+                    if line.startswith("V 1.26"):
+                        SYSTEM_STATUS["firmware"] = line
+                        continue
+
+                    packet = parse_cul_max_packet(line, sock)
+                    if packet:
+                        rf = packet["src_rf"]
+                        if rf not in DEVICE_CACHE: DEVICE_CACHE[rf] = {}
+                        
+                        for k, v in packet.items():
+                            if k != "raw": DEVICE_CACHE[rf][k] = v
+                            
+                        DEVICE_CACHE[rf]["last_seen"] = int(time.time())
+                        write_json_cache(sock)
+
+                        if packet["category"] == "fensterkontakt":
+                            st = "OUVERTE 🪟" if packet.get("is_open") else "FERMÉE 🔒"
+                            batt = " [🪫 Pile]" if packet.get("batt") else ""
+                            log(f"✨ [RX] 🪟 [{packet['label']} ({packet['room']})] -> {st}{batt} | RSSI: {packet.get('rssi', '--')} | RAW: {packet['raw']}")
+                        elif packet["category"] == "heizung" and "mode" in packet:
+                            batt = " [🪫 Pile]" if packet.get("batt") else ""
+                            ist_val = packet.get("ist", DEVICE_CACHE[rf].get("ist", "--"))
+                            fw_disp = packet.get("firmware", DEVICE_CACHE[rf].get("firmware", "v1.6"))
+                            log(f"✨ [RX] 🔥 [{packet['label']} ({packet['room']})] -> Mode: {packet['mode']} | Consigne: {packet['soll']}°C | Mesure: {ist_val}°C | Ouv: {packet['valve_pos']}{batt} | FW: {fw_disp} | RSSI: {packet.get('rssi', '--')} | RAW: {packet['raw']}")
+
+        except Exception as e:
+            log(f"💥 [ERROR] : {e}")
+            if sock: 
+                try: sock.close() 
+                except Exception: pass
+            sock = None
+            time.sleep(3)
+
+if __name__ == "__main__":
+    run_daemon()
