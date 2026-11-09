@@ -28,17 +28,13 @@ else:
 
 def get_android_state(ip):
     try:
-        # Tente d'exécuter la commande ADB avec un timeout de 2 secondes
         cmd = f"adb -s {ip} shell dumpsys power"
         result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=2)
-
-        # Si ADB répond correctement et contient l'état d'affichage
         if "state=ON" in result.stdout:
             return "ON"
         else:
             return "OFF"
     except subprocess.TimeoutExpired:
-        # Si l'appareil est déconnecté du réseau ou en veille profonde
         return "OFF"
     except Exception:
         return "OFF"
@@ -46,49 +42,56 @@ def get_android_state(ip):
 def clean_expired_devices():
     global cached_devices
     now = int(time.time())
-    expired = [ip for ip, dev in cached_devices.items() if now - dev["last_seen"] > MAX_AGE_SECONDS]
-    for ip in expired: del cached_devices[ip]
+    expired = [key for key, dev in cached_devices.items() if now - dev.get("last_seen", now) > MAX_AGE_SECONDS]
+    for key in expired: del cached_devices[key]
 
-def update_device_cache(ip, power=None, state=None, channel=None, dimmer=None, temperature=None, mqtt_name=None):
+def update_device_cache(key, power=None, state=None, channel=None, dimmer=None, temperature=None, mqtt_name=None, humidity=None, battery=None):
     global cached_devices
     now = int(time.time())
 
-    if ip not in cached_devices:
-        cached_devices[ip] = {"power": 0.0, "state": "OFF", "channels": {}, "channel_states": {}, "dimmer": 100, "temperature": 154, "last_seen": now}
+    if key not in cached_devices:
+        cached_devices[key] = {
+            "power": 0.0, "state": "OFF", "channels": {}, "channel_states": {}, 
+            "dimmer": 100, "temperature": None, "humidity": None, "battery": None, "last_seen": now
+        }
 
     if mqtt_name is not None:
-        cached_devices[ip]["mqtt_name"] = mqtt_name
+        cached_devices[key]["mqtt_name"] = mqtt_name
 
     if channel is not None:
         ch_key = str(channel)
         if power is not None:
             p_val = round(float(power), 2)
-            # ⛔ Sécurité anti-bruit : Si pas de production solaire, on écrase les résidus négatifs
-            if p_val < 0: 
-                p_val = 0.0
-            cached_devices[ip]["channels"][ch_key] = p_val
-            cached_devices[ip]["channel_states"][ch_key] = "ON" if p_val > 1.5 else "OFF"
+            if p_val < 0: p_val = 0.0
+            cached_devices[key]["channels"][ch_key] = p_val
+            cached_devices[key]["channel_states"][ch_key] = "ON" if p_val > 1.5 else "OFF"
         if state is not None:
-            cached_devices[ip]["channel_states"][ch_key] = "ON" if str(state).upper() in ["ON", "TRUE", "1"] else "OFF"
+            cached_devices[key]["channel_states"][ch_key] = "ON" if str(state).upper() in ["ON", "TRUE", "1"] else "OFF"
 
     if channel is None:
         if power is not None: 
             p_val = round(float(power), 2)
-            cached_devices[ip]["power"] = 0.0 if p_val < 0 else p_val
-        if state is not None: cached_devices[ip]["state"] = "ON" if str(state).upper() in ["ON", "TRUE", "1"] else "OFF"
+            cached_devices[key]["power"] = 0.0 if p_val < 0 else p_val
+        if state is not None: cached_devices[key]["state"] = "ON" if str(state).upper() in ["ON", "TRUE", "1"] else "OFF"
     else:
-        if cached_devices[ip]["channels"]: cached_devices[ip]["power"] = round(sum(cached_devices[ip]["channels"].values()), 2)
-        if cached_devices[ip]["channel_states"]:
-            cached_devices[ip]["state"] = "ON" if any(v == "ON" for v in cached_devices[ip]["channel_states"].values()) else "OFF"
+        if cached_devices[key]["channels"]: cached_devices[key]["power"] = round(sum(cached_devices[key]["channels"].values()), 2)
+        if cached_devices[key]["channel_states"]:
+            cached_devices[key]["state"] = "ON" if any(v == "ON" for v in cached_devices[key]["channel_states"].values()) else "OFF"
 
     if dimmer is not None:
-        try: cached_devices[ip]["dimmer"] = int(dimmer)
+        try: cached_devices[key]["dimmer"] = int(dimmer)
         except: pass
     if temperature is not None:
-        try: cached_devices[ip]["temperature"] = int(temperature)
+        try: cached_devices[key]["temperature"] = float(temperature)
+        except: pass
+    if humidity is not None:
+        try: cached_devices[key]["humidity"] = float(humidity)
+        except: pass
+    if battery is not None:
+        try: cached_devices[key]["battery"] = int(battery)
         except: pass
 
-    cached_devices[ip]["last_seen"] = now
+    cached_devices[key]["last_seen"] = now
     clean_expired_devices()
     write_ram_cache()
 
@@ -102,10 +105,8 @@ def discover_and_ping_pcs():
 
     for line in lines:
         line = line.strip()
-        # Évite les lignes de commentaires ou vides
         if not line or line.startswith("#"): continue
 
-        # --- ANCIEN CAS : LES PC ---
         if "pc|" in line:
             match = re.search(r'pc\|(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})', line)
             if match:
@@ -114,19 +115,11 @@ def discover_and_ping_pcs():
                 cached_devices[ip] = {"power": 0.0, "state": "ON" if is_online else "OFF", "channels": {}, "channel_states": {}, "last_seen": int(time.time())}
                 updated = True
 
-# --- CAS 2 : LES APPAREILS ANDROID (Avec gestion MAC) ---
         elif "android|" in line:
-            # Extraction de l'IP (groupe 1) et de la MAC (groupe 2)
             match = re.search(r'android\|(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\|([0-9A-Fa-f:]{17})', line)
             if match:
                 ip = match.group(1)
-                # Note : On n'utilise pas la MAC dans le monitoring d'état,
-                # mais elle est bien lue et prête si besoin.
-
                 state = get_android_state(ip)
-
-                # 💡 INTÉGRATION KEEP-ALIVE : Si l'écran n'a pas été éteint manuellement (état ON),
-                # on injecte une commande d'activité fictive (224 = KEYCODE_WAKEUP) pour forcer le maintien de l'écran.
                 if state == "ON":
                     try:
                         subprocess.run(f"adb -s {ip} shell input keyevent 224", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1)
@@ -168,6 +161,31 @@ def on_message(client, userdata, msg):
         parts = topic.split('/')
         device_id = parts[0]
 
+        # --- GESTION DES CAPTEURS GOVEE BLE (PUBLIÉS PAR LES SHELLY) ---
+        if "govee" in topic.lower() and payload_str.startswith("{"):
+            try:
+                data = json.loads(payload_str)
+                mac = data.get("mac")
+                if mac:
+                    temp = data.get("temperature")
+                    hum = data.get("humidity")
+                    batt = data.get("battery")
+                    name = data.get("name", "Govee_H5075")
+
+                    print(f"🌡️ [GOVEE] {name} ({mac}) -> T: {temp}°C | H: {hum}% | Bat: {batt}%", flush=True)
+                    
+                    # On stocke directement dans le cache sous la MAC comme clé unique
+                    update_device_cache(
+                        key=mac,
+                        temperature=temp,
+                        humidity=hum,
+                        battery=batt,
+                        mqtt_name="govee_" +name
+                    )
+            except:
+                pass
+            return
+
         # --- CAS 1 : TASMOTA ---
         if topic.startswith("tele/") or topic.startswith("stat/"):
             lookup_id = parts[1] if len(parts) > 1 else device_id
@@ -194,23 +212,18 @@ def on_message(client, userdata, msg):
                     elif 'GS303' in sns and isinstance(sns['GS303'], dict): update_device_cache(ip, power=sns['GS303'].get('Power_cur'))
                 except: pass
 
-
-        
-# --- CAS 2 : APPAREILS APYRAMIDAUX (OPENBEKEN & SHELLY GEN 1) ---
+        # --- CAS 2 : OPENBEKEN & SHELLY GEN 1 ---
         elif device_id.startswith("obk") or "shellies" in topic or "OpenBK" in topic:
-            # REVOLUTION DE L'ID UNIQUE : On extrait le vrai nom (index 1) si la racine est générique
             resolved_id = device_id
             if device_id == "shellies" and len(parts) > 1:
                 resolved_id = parts[1]
             elif "OpenBK" in topic and len(parts) > 1 and not device_id.startswith("obk"):
                 resolved_id = parts[1] if parts[1].startswith("obk") else device_id
 
-            # Extraction et association de l'IP avec le VRAI ID unique résolu
             ip_match = re.search(r'192\.168\.\d+\.\d+', payload_str)
             if ip_match:
                 topic_to_ip_map[resolved_id] = ip_match.group(0)
 
-            # 💡 SHIELD IP SHELLY GEN 1 : Si l'IP n'est pas dans le payload, on l'extrait depuis les underscores du topic
             if "shellies" in topic and "192_168_" in resolved_id:
                 ip_und = re.search(r'192_168_\d+_\d+', resolved_id)
                 if ip_und:
@@ -218,28 +231,22 @@ def on_message(client, userdata, msg):
 
             ip = topic_to_ip_map.get(resolved_id)
             if ip:
-                # On enregistre la correspondance dans sha_live.json
                 update_device_cache(ip, mqtt_name=resolved_id)
 
-                # 📊 PARSING SPÉCIFIQUE ENTRÉES/SORTIES SHELLY EM (GEN 1)
                 if "shellies" in topic:
                     try:
                         if ("emeter" in parts or "light" in parts) and topic.endswith("/power"):
-                            # parts: ['shellies', 'Shelly_EM_Auto_192_168_0_184', 'emeter', '0', 'power']
                             update_device_cache(ip, power=float(payload_str), channel=parts[3])
                         elif "relay" in parts:
-                            # parts: ['shellies', 'Shelly_EM_Auto_192_168_0_184', 'relay', '0']
                             update_device_cache(ip, state=payload_str, channel=parts[3])
                     except: pass
 
-                # 🚀 1. PRIORITÉ ABSOLUE : Statut Maître via led_enableAll (gère led_enableAll et led_enableAll/get)
                 elif "led_enableAll" in topic:
                     new_state = "ON" if payload_str in ["1", "ON", "TRUE"] else "OFF"
                     update_device_cache(ip, state=new_state)
                     update_device_cache(ip, state=new_state, channel="1")
                     update_device_cache(ip, state=new_state, channel="0")
                 
-                # 🚀 2. LEVIER SECONDAIRE : L'ordre d'intensité /1/set
                 elif topic.endswith("/1/set") or (topic.endswith("/1") and not topic.endswith("/get")):
                     try:
                         val = int(float(payload_str))
@@ -253,7 +260,6 @@ def on_message(client, userdata, msg):
                             update_device_cache(ip, state="ON", channel="0")
                     except: pass
 
-                # 🚀 3. VALEUR DE GRADATION : Lecture seule de l'intensité
                 elif "led_dimmer" in topic:
                     try:
                         dim_val = int(float(payload_str))

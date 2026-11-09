@@ -72,7 +72,7 @@ if (!function_exists('get_wmo_weather_info')) {
 
 $wmo_info = get_wmo_weather_info($cloud_code);
 
-// --- 3. RÉCUPÉRATION DES DONNÉES LOCALES (NETATMO + TASMOTA BADEZIMMER) ---
+// --- 3. RÉCUPÉRATION DES DONNÉES LOCALES (NETATMO) ---
 $weather_file = __DIR__ . '/data/weather.json';
 $weather_json = file_exists($weather_file) ? json_decode(@file_get_contents($weather_file), true) : [];
 $netatmo = [];
@@ -91,7 +91,7 @@ if (is_array($weather_json)) {
     }
 }
 
-// --- 4. INTÉGRATION SPÉCIFIQUE DU CAPTEUR TASMOTA THR316D (192.168.0.67) ---
+// --- 4. INTÉGRATION DU CAPTEUR TASMOTA BADEZIMMER (192.168.0.67) ---
 $live_cache_file = __DIR__ . '/data/sha_live.json';
 $live_devices = [];
 if (file_exists($live_cache_file)) {
@@ -104,7 +104,6 @@ $bz_temp = $live_devices[$bz_ip]['temperature'] ?? null;
 $bz_hum  = $live_devices[$bz_ip]['humidity'] ?? null;
 $bz_dew  = $live_devices[$bz_ip]['dew_point'] ?? null;
 
-// Reconstitution directe via HTTP Status 10 si la RAM n'a pas encore reçu le paquet MQTT
 if ($bz_temp === null || $bz_temp == 154) {
     $ctx = stream_context_create(['http' => ['timeout' => 1]]);
     $tasmota_raw = @file_get_contents("http://{$bz_ip}/cm?cmnd=Status%2010", false, $ctx);
@@ -128,6 +127,24 @@ if ($bz_temp !== null && $bz_temp != 154) {
         'hum'          => $bz_hum,
         'dew'          => $bz_dew
     ];
+}
+
+// --- 5. INTÉGRATION DES CAPTEURS GOVEE BLE DEPUIS LA RAM ---
+if (!empty($live_devices)) {
+    foreach ($live_devices as $mac => $dev_info) {
+        $mqtt_name = $dev_info['mqtt_name'] ?? '';
+        if (stripos($mqtt_name, 'govee_') === 0) {
+            $room_name = ucfirst(substr($mqtt_name, 6)); // Ex: govee_Wohnzimmer -> Wohnzimmer
+            $netatmo['Govee_' . $mac] = [
+                'name'         => $mqtt_name,
+                'display_name' => $room_name,
+                'type'         => 'Indoor',
+                'temp'         => $dev_info['temperature'] ?? '--',
+                'hum'          => $dev_info['humidity'] ?? '--',
+                'battery'      => $dev_info['battery'] ?? null,
+            ];
+        }
+    }
 }
 
 $local_temp = $netatmo['Aussen']['temp'] ?? null;
